@@ -1,0 +1,19 @@
+# Build outputs
+bin/
+obj/
+CommunicateTheSpire2.pck
+
+# Godot editor
+.godot/
+
+# Debug / IDE
+*.pdb
+.vs/
+*.user
+*.suo
+*.uid
+
+# Keep lib/ but ignore copied game DLLs (see lib/.gitignore)
+lib/*.dll
+*.zip
+

@@ -1,0 +1,20 @@
+<Project Sdk="Godot.NET.Sdk/4.5.1">
+  <PropertyGroup>
+    <AssemblyName>CommunicateTheSpire2</AssemblyName>
+    <TargetFramework>net90</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>12</LangVersion>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <OutputPath>bin\$(Configuration)\</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <!-- Path to game DLLs: set STS2_GAME_PATH env var to game data folder (e.g. .../Slay the Spire 2/data_sts2_windows_x86_64), or copy sts2.dll + 0Harmony.dll into CommunicateTheSpire2/lib/ -->
+    <Sts2GamePath Condition="'$(Sts2GamePath)' == ''">$(ProjectDir)lib</Sts2GamePath>
+    <Sts2GamePath Condition="'$(Sts2GamePath)' == '' and '$(STS2_GAME_PATH)' != ''">$(STS2_GAME_PATH)</Sts2GamePath>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="sts2" HintPath="$(Sts2GamePath)\sts2.dll" />
+    <Reference Include="0Harmony" HintPath="$(Sts2GamePath)\0Harmony.dll" />
+  </ItemGroup>
+</Project>
+

@@ -1,0 +1,13 @@
+; Minimal Godot project: no C#. Only mod_manifest.json is packed.
+; Use this to export a clean DemoMod.pck (no C#/bin/obj).
+
+config_version=5
+
+[application]
+config/name="CommunicateTheSpire2"
+config/features=PackedStringArray("4.5")
+
+[display]
+window/size/viewport_width=1
+window/size/viewport_height=1
+
