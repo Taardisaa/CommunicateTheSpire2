@@ -17,7 +17,7 @@ public static class ModEntry
 	private static readonly object HostLock = new object();
 	private static StdioProcessHost? _host;
 	private static CancellationTokenSource? _hostCts;
-		private static volatile bool _protocolActive;
+	private static volatile bool _protocolActive;
 
 	static ModEntry()
 	{
@@ -35,15 +35,26 @@ public static class ModEntry
 			AppDomain.CurrentDomain.ProcessExit += (_, _) => StopController();
 
 			var cfg = CommunicateTheSpire2Config.LoadOrCreateDefault();
-			CommunicateTheSpireLog.Write($"Loaded config from {CommunicateTheSpire2Config.ConfigPath} (Enabled={cfg.Enabled}, HandshakeTimeoutSeconds={cfg.HandshakeTimeoutSeconds})");
+			CommunicateTheSpireLog.Write(
+				$"Loaded config from {CommunicateTheSpire2Config.ConfigPath} " +
+				$"(Enabled={cfg.Enabled}, Mode={cfg.Mode}, HandshakeTimeoutSeconds={cfg.HandshakeTimeoutSeconds}, VerboseProtocolLogs={cfg.VerboseProtocolLogs})");
+			CommunicateTheSpireLog.Write($"Controller stderr log path: {CommunicateTheSpireLog.ControllerErrorLogPath}");
 
-			if (cfg.Enabled && !string.IsNullOrWhiteSpace(cfg.ControllerCommand))
+			if (!cfg.Enabled)
 			{
-				StartControllerAsync(cfg);
+				CommunicateTheSpireLog.Write("Controller not started (config enabled=false).");
+			}
+			else if (!cfg.IsSpawnMode)
+			{
+				CommunicateTheSpireLog.Write($"Controller mode '{cfg.Mode}' is not implemented yet. Set mode='spawn' to launch a controller process.");
+			}
+			else if (string.IsNullOrWhiteSpace(cfg.Command))
+			{
+				CommunicateTheSpireLog.Write("Controller not started (mode=spawn but command is empty).");
 			}
 			else
 			{
-				CommunicateTheSpireLog.Write("Controller not started (disabled or empty ControllerCommand).");
+				StartControllerAsync(cfg);
 			}
 
 			// Apply our Harmony patches (game only runs PatchAll when there is no ModInitializer, so we do it here).
@@ -84,7 +95,11 @@ public static class ModEntry
 			};
 			_host.StderrLine += line =>
 			{
-				CommunicateTheSpireLog.Write("[controller stderr] " + line);
+				CommunicateTheSpireLog.WriteControllerError(line);
+				if (cfg.VerboseProtocolLogs)
+				{
+					CommunicateTheSpireLog.Write("[controller stderr] " + line);
+				}
 			};
 			_host.Exited += code =>
 			{
@@ -97,10 +112,10 @@ public static class ModEntry
 		{
 			try
 			{
-				CommunicateTheSpireLog.Write("Starting controller: " + cfg.ControllerCommand);
+				CommunicateTheSpireLog.Write("Starting controller: " + cfg.Command);
 				bool ready = await _host!.StartAsync(
-					cfg.ControllerCommand,
-					cfg.ControllerWorkingDirectory,
+					cfg.Command,
+					cfg.WorkingDirectory,
 					TimeSpan.FromSeconds(Math.Max(1, cfg.HandshakeTimeoutSeconds)),
 					line => string.Equals(line.Trim(), "ready", StringComparison.OrdinalIgnoreCase),
 					_hostCts!.Token);
