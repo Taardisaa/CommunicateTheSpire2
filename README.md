@@ -4,6 +4,12 @@
 
 Slay the Spire 2 mod scaffolding for building an IPC bridge (inspired by StS1 CommunicationMod). Currently this repo is a scaffold: it verifies mod loading and writes logs.
 
+## Status
+
+**Placeholder / under active development.** The current implementation only proves mod loading and includes a minimal **stdio transport + `ready` handshake** to a controller process. It does **not** yet stream game state or execute gameplay commands.
+
+- **Roadmap**: see `docs/PLAN.md`
+
 ---
 
 ## What you need
