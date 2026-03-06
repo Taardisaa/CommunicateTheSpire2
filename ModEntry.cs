@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using HarmonyLib;
 using CommunicateTheSpire2.Config;
 using CommunicateTheSpire2.Ipc;
+using CommunicateTheSpire2.Protocol;
 using MegaCrit.Sts2.Core.Logging;
 using MegaCrit.Sts2.Core.Modding;
 
@@ -16,24 +17,25 @@ public static class ModEntry
 	private static readonly object HostLock = new object();
 	private static StdioProcessHost? _host;
 	private static CancellationTokenSource? _hostCts;
+		private static volatile bool _protocolActive;
 
 	static ModEntry()
 	{
 		// Runs when this type is first used (before Init). Proves the mod DLL was loaded by ModManager.
-		DemoModLog.Write("CommunicateTheSpire2 assembly loaded; ModEntry static constructor ran (ModManager is initializing this mod).");
+		CommunicateTheSpireLog.Write("CommunicateTheSpire2 assembly loaded; ModEntry static constructor ran (ModManager is initializing this mod).");
 	}
 
 	public static void Init()
 	{
 		try
 		{
-			DemoModLog.Write("Init() entered — ModManager called our initializer.");
+			CommunicateTheSpireLog.Write("Init() entered — ModManager called our initializer.");
 			Log.Info("CommunicateTheSpire2 loaded! (transport bootstrap in progress)");
 
 			AppDomain.CurrentDomain.ProcessExit += (_, _) => StopController();
 
 			var cfg = CommunicateTheSpire2Config.LoadOrCreateDefault();
-			DemoModLog.Write($"Loaded config from {CommunicateTheSpire2Config.ConfigPath} (Enabled={cfg.Enabled}, HandshakeTimeoutSeconds={cfg.HandshakeTimeoutSeconds})");
+			CommunicateTheSpireLog.Write($"Loaded config from {CommunicateTheSpire2Config.ConfigPath} (Enabled={cfg.Enabled}, HandshakeTimeoutSeconds={cfg.HandshakeTimeoutSeconds})");
 
 			if (cfg.Enabled && !string.IsNullOrWhiteSpace(cfg.ControllerCommand))
 			{
@@ -41,17 +43,17 @@ public static class ModEntry
 			}
 			else
 			{
-				DemoModLog.Write("Controller not started (disabled or empty ControllerCommand).");
+				CommunicateTheSpireLog.Write("Controller not started (disabled or empty ControllerCommand).");
 			}
 
 			// Apply our Harmony patches (game only runs PatchAll when there is no ModInitializer, so we do it here).
 			var harmony = new Harmony("CommunicateTheSpire2");
 			harmony.PatchAll(Assembly.GetExecutingAssembly());
-			DemoModLog.Write("Init() completed successfully.");
+			CommunicateTheSpireLog.Write("Init() completed successfully.");
 		}
 		catch (Exception ex)
 		{
-			DemoModLog.Write("Init() FAILED: " + ex);
+			CommunicateTheSpireLog.Write("Init() FAILED: " + ex);
 			throw;
 		}
 	}
@@ -62,7 +64,7 @@ public static class ModEntry
 		{
 			if (_host != null)
 			{
-				DemoModLog.Write("Controller already running; skipping start.");
+				CommunicateTheSpireLog.Write("Controller already running; skipping start.");
 				return;
 			}
 			_host = new StdioProcessHost();
@@ -71,16 +73,22 @@ public static class ModEntry
 			{
 				if (cfg.VerboseProtocolLogs)
 				{
-					DemoModLog.Write("[controller stdout] " + line);
+					CommunicateTheSpireLog.Write("[controller stdout] " + line);
+				}
+
+				// After handshake, treat controller stdout lines as protocol commands.
+				if (_protocolActive)
+				{
+					HandleControllerLine(line);
 				}
 			};
 			_host.StderrLine += line =>
 			{
-				DemoModLog.Write("[controller stderr] " + line);
+				CommunicateTheSpireLog.Write("[controller stderr] " + line);
 			};
 			_host.Exited += code =>
 			{
-				DemoModLog.Write($"Controller exited (code={code?.ToString() ?? "?"}).");
+				CommunicateTheSpireLog.Write($"Controller exited (code={code?.ToString() ?? "?"}).");
 				StopController();
 			};
 		}
@@ -89,7 +97,7 @@ public static class ModEntry
 		{
 			try
 			{
-				DemoModLog.Write("Starting controller: " + cfg.ControllerCommand);
+				CommunicateTheSpireLog.Write("Starting controller: " + cfg.ControllerCommand);
 				bool ready = await _host!.StartAsync(
 					cfg.ControllerCommand,
 					cfg.ControllerWorkingDirectory,
@@ -99,16 +107,24 @@ public static class ModEntry
 
 				if (!ready)
 				{
-					DemoModLog.Write("Controller handshake timed out (did not receive 'ready'). Stopping controller.");
+					CommunicateTheSpireLog.Write("Controller handshake timed out (did not receive 'ready'). Stopping controller.");
 					StopController();
 					return;
 				}
 
-				DemoModLog.Write("Controller handshake OK (received 'ready').");
+				CommunicateTheSpireLog.Write("Controller handshake OK (received 'ready').");
+
+				// Enable protocol handling and send initial hello.
+				lock (HostLock)
+				{
+					_protocolActive = true;
+				}
+
+				SendJson(new HelloMessage());
 			}
 			catch (Exception ex)
 			{
-				DemoModLog.Write("Controller start FAILED: " + ex);
+				CommunicateTheSpireLog.Write("Controller start FAILED: " + ex);
 				StopController();
 			}
 		});
@@ -124,11 +140,84 @@ public static class ModEntry
 			cts = _hostCts;
 			_host = null;
 			_hostCts = null;
+			_protocolActive = false;
 		}
 
 		try { cts?.Cancel(); } catch { /* ignore */ }
 		try { cts?.Dispose(); } catch { /* ignore */ }
 		try { host?.Dispose(); } catch { /* ignore */ }
+	}
+
+	private static void HandleControllerLine(string line)
+	{
+		try
+		{
+			if (!ProtocolCommandParser.TryParse(line, out string command, out string? _, out ErrorMessage? error))
+			{
+				if (error != null)
+				{
+					SendJson(error);
+				}
+				return;
+			}
+
+			switch (command.ToUpperInvariant())
+			{
+				case "STATE":
+					{
+						var state = SnapshotBuilder.BuildState();
+						SendJson(state);
+						break;
+					}
+				case "PING":
+					{
+						var pong = new PongMessage();
+						SendJson(pong);
+						break;
+					}
+				default:
+					{
+						var err = new ErrorMessage
+						{
+							error = "UnknownCommand",
+							details = $"Command '{command}' is not supported."
+						};
+						SendJson(err);
+						break;
+					}
+			}
+		}
+		catch (Exception ex)
+		{
+			var err = new ErrorMessage
+			{
+				error = "CommandHandlingError",
+				details = ex.Message
+			};
+			SendJson(err);
+		}
+	}
+
+	private static void SendJson(object message)
+	{
+		StdioProcessHost? host;
+		lock (HostLock)
+		{
+			host = _host;
+		}
+
+		if (host == null || !host.IsRunning)
+			return;
+
+		try
+		{
+			string json = ProtocolJson.Serialize(message);
+			host.SendLine(json);
+		}
+		catch (Exception ex)
+		{
+			CommunicateTheSpireLog.Write("Failed to send JSON to controller: " + ex);
+		}
 	}
 }
 

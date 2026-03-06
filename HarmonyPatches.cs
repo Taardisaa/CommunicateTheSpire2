@@ -14,7 +14,7 @@ public static class PatchModManagerInitialize
 	[HarmonyPostfix]
 	public static void Postfix()
 	{
-		DemoModLog.Write("Harmony postfix ran after ModManager.Initialize — hooking works.");
+		CommunicateTheSpireLog.Write("Harmony postfix ran after ModManager.Initialize — hooking works.");
 		Log.Info("CommunicateTheSpire2: Harmony postfix ran after ModManager.Initialize — hooking works.");
 	}
 }

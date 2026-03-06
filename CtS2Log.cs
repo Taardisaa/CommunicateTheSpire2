@@ -7,7 +7,7 @@ namespace CommunicateTheSpire2;
 /// Writes demo mod messages to a .log file in the game's user data area
 /// (e.g. %APPDATA%\SlayTheSpire2\CommunicateTheSpire2.log on Windows).
 /// </summary>
-public static class DemoModLog
+public static class CommunicateTheSpireLog
 {
 	private static readonly object Lock = new object();
 	private static string? _logPath;
@@ -55,7 +55,7 @@ public static class DemoModLog
 	{
 		try
 		{
-			string fallback = Path.Combine(Path.GetTempPath(), "DemoMod.log");
+			string fallback = Path.Combine(Path.GetTempPath(), "CommunicateTheSpire2.log");
 			File.AppendAllText(fallback, line);
 			File.AppendAllText(fallback, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] (Primary path failed; using fallback: {fallback}){Environment.NewLine}");
 		}

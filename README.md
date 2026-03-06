@@ -140,15 +140,15 @@ Result:
 1. Start **Slay the Spire 2**.
 2. If a popup appears on the main menu asking to enable mods, choose **Yes** (load mods).
 3. The game will **quit** so mods can load. Start the game again.
-4. Go to **Settings → Modding**. You should see **Demo Mod** in the list and it should be enabled.
+4. Go to **Settings → Modding**. You should see **Communicate The Spire 2** in the list and it should be enabled.
 
 ### Step 4 — Verify the mod is running
 
-The demo mod writes a log file so you can confirm it ran without using the console.
+The mod writes a log file so you can confirm it ran without using the console.
 
 - **Windows:**  
-  `%APPDATA%\SlayTheSpire2\DemoMod.log`  
-  (e.g. `C:\Users\<YourUser>\AppData\Roaming\SlayTheSpire2\DemoMod.log`)
+  `%APPDATA%\SlayTheSpire2\CommunicateTheSpire2.log`  
+  (e.g. `C:\Users\<YourUser>\AppData\Roaming\SlayTheSpire2\CommunicateTheSpire2.log`)
 - Open that file after starting the game with the mod enabled. You should see lines such as:
   - `CommunicateTheSpire2 assembly loaded; ModEntry static constructor ran (ModManager is initializing this mod).`
   - `Init() entered — ModManager called our initializer.`
