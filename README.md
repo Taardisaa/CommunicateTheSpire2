@@ -13,8 +13,9 @@ Slay the Spire 2 mod for external process control over stdio (inspired by StS1 C
 - **State**: JSON snapshots via `STATE` (run, combat, player HP/energy, hand cards, enemies)
 - **Commands**: `STATE`, `PING`, `END`, `PLAY`, `EVENT_CHOOSE`, `REST_CHOOSE`, `MAP_CHOOSE`
 - **Choice integration**: mod sends `choice_request` for card rewards/selects; controller responds with `CHOOSE_RESPONSE <choice_id> <index>` or `skip`
-- **Not yet**: auto-send on stability, potions
+- **Not yet**: potions, shop purchase, in-game settings UI
 
+- **Protocol**: full specification in `docs/PROTOCOL.md`
 - **Roadmap**: see `docs/PLAN.md`
 
 ---
@@ -124,10 +125,11 @@ Example (edit after first game launch with the mod):
 **Protocol (NDJSON over stdin/stdout):**
 1. Controller prints `ready`
 2. Mod sends `hello` JSON
-3. Controller sends commands; mod sends responses
-4. Commands: `STATE` (get snapshot), `PING`, `END` (end turn), `PLAY 0 1` (play hand card 0, target enemy 1)
+3. Mod auto-sends `state` when game is stable; controller may send `STATE` for immediate snapshot
+4. Commands: `STATE`, `PING`, `END`, `PLAY <handIndex> [targetIndex]`, `EVENT_CHOOSE <index>`, `REST_CHOOSE <index>`, `MAP_CHOOSE <index>`
+5. For choice screens, mod sends `choice_request`; controller responds with `CHOOSE_RESPONSE <choice_id> <index>` or `skip`
 
-See `controller/random_controller.py` for a minimal example.
+See `docs/PROTOCOL.md` for full schema and examples. See `controller/random_controller.py` for a minimal controller.
 
 ---
 
