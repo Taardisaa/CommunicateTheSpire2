@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using CommunicateTheSpire2.Protocol;
 using MegaCrit.Sts2.Core.Combat;
@@ -14,6 +15,8 @@ using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Multiplayer.Game;
 using MegaCrit.Sts2.Core.Runs;
 using MegaCrit.Sts2.Core.Rooms;
+using MegaCrit.Sts2.Core.Saves;
+using MegaCrit.Sts2.Core.Unlocks;
 using MegaCrit.Sts2.Core.Nodes;
 using MegaCrit.Sts2.Core.Nodes.Rooms;
 using MegaCrit.Sts2.Core.Nodes.Screens.Map;
@@ -468,6 +471,67 @@ public static class CommandExecutor
 				};
 				return false;
 		}
+	}
+
+	/// <summary>Start a new singleplayer run. Character: index 0-4 or id (e.g. Ironclad, Silent). Seed/ascension optional.</summary>
+	public static bool TryExecuteStart(string? characterArg, string? seedArg, int ascension, out ErrorMessage? error)
+	{
+		error = null;
+		if (RunManager.Instance.DebugOnlyGetState() != null)
+		{
+			error = new ErrorMessage { error = "AlreadyInRun", details = "A run is already in progress. Abandon or finish it first." };
+			return false;
+		}
+
+		if (NGame.Instance == null)
+		{
+			error = new ErrorMessage { error = "GameUnavailable", details = "Game instance not available." };
+			return false;
+		}
+
+		CharacterModel? character = ResolveCharacter(characterArg, out string? resolveError);
+		if (character == null)
+		{
+			error = new ErrorMessage { error = "InvalidCharacter", details = resolveError ?? "Provide character index 0-4 or id: Ironclad, Silent, Regent, Necrobinder, Defect." };
+			return false;
+		}
+
+		string seed = string.IsNullOrWhiteSpace(seedArg) ? Guid.NewGuid().ToString("N")[..16] : seedArg.Trim();
+		ascension = Math.Clamp(ascension, 0, 20);
+
+		UnlockState unlockState = SaveManager.Instance.GenerateUnlockStateFromProgress();
+		List<ActModel> acts = ActModel.GetRandomList(seed, unlockState, isMultiplayer: false).ToList();
+
+		TaskHelper.RunSafely(NGame.Instance.StartNewSingleplayerRun(character, shouldSave: true, acts, Array.Empty<ModifierModel>(), seed, ascension));
+		return true;
+	}
+
+	private static CharacterModel? ResolveCharacter(string? arg, out string? errorDetail)
+	{
+		errorDetail = null;
+		var characters = ModelDb.AllCharacters.ToList();
+		if (characters.Count == 0)
+			return null;
+
+		if (string.IsNullOrWhiteSpace(arg))
+			return characters[0];
+
+		string trimmed = arg.Trim();
+		if (int.TryParse(trimmed, out int index))
+		{
+			if (index < 0 || index >= characters.Count)
+			{
+				errorDetail = $"Character index must be 0-{characters.Count - 1}.";
+				return null;
+			}
+			return characters[index];
+		}
+
+		var match = characters.FirstOrDefault(c => string.Equals(c.Id.Entry, trimmed, StringComparison.OrdinalIgnoreCase));
+		if (match != null)
+			return match;
+		errorDetail = $"Unknown character '{trimmed}'. Use index 0-{characters.Count - 1} or: {string.Join(", ", characters.Select(c => c.Id.Entry))}.";
+		return null;
 	}
 
 	private static Player? SafeGetLocalPlayer(CombatState combatState)

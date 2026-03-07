@@ -163,6 +163,10 @@ public static class SnapshotBuilder
 		// PROCEED: leave current room/screen (event, rest_site, treasure, shop)
 		if (msg.in_run && !msg.in_combat && msg.screen is "event" or "rest_site" or "treasure" or "shop")
 			msg.available_commands.Add("PROCEED");
+
+		// START: begin new run from main menu (when not in run)
+		if (!msg.in_run)
+			msg.available_commands.Add("START");
 	}
 
 	private static Player? SafeGetLocalPlayer(CombatState combatState)

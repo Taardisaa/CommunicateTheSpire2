@@ -396,11 +396,20 @@ public static class ModEntry
 							SendJson(error);
 						break;
 					}
+				case "START":
+					{
+						TryParseStartArgs(args ?? "", out string? charArg, out string? seedArg, out int ascension);
+						if (CommandExecutor.TryExecuteStart(charArg, seedArg, ascension, out error))
+							SendJson(new { type = "start_queued", ok = true, character = charArg, seed = seedArg, ascension });
+						else if (error != null)
+							SendJson(error);
+						break;
+					}
 				default:
 					SendJson(new ErrorMessage
 					{
 						error = "UnknownCommand",
-						details = $"Command '{command}' is not supported. Supported: STATE, PING, END, PLAY, EVENT_CHOOSE, REST_CHOOSE, MAP_CHOOSE, POTION, PROCEED. For choice screens, respond with CHOOSE_RESPONSE <choice_id> <index> or skip."
+						details = $"Command '{command}' is not supported. Supported: STATE, PING, END, PLAY, EVENT_CHOOSE, REST_CHOOSE, MAP_CHOOSE, POTION, PROCEED, START. For choice screens, respond with CHOOSE_RESPONSE <choice_id> <index> or skip."
 					});
 					break;
 			}
@@ -409,6 +418,26 @@ public static class ModEntry
 		{
 			SendJson(new ErrorMessage { error = "CommandHandlingError", details = ex.Message });
 		}
+	}
+
+	/// <summary>Parses START args: "[character] [seed] [ascension]". Character: index 0-4 or id. Ascension 0-20.</summary>
+	private static void TryParseStartArgs(string args, out string? characterArg, out string? seedArg, out int ascension)
+	{
+		characterArg = null;
+		seedArg = null;
+		ascension = 0;
+		string[] parts = string.IsNullOrWhiteSpace(args) ? Array.Empty<string>() : args.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+		if (parts.Length >= 1)
+			characterArg = parts[0];
+		if (parts.Length >= 2)
+		{
+			if (int.TryParse(parts[1], out int a2) && parts.Length == 2)
+				ascension = Math.Clamp(a2, 0, 20);
+			else
+				seedArg = parts[1];
+		}
+		if (parts.Length >= 3 && int.TryParse(parts[2], out int a3))
+			ascension = Math.Clamp(a3, 0, 20);
 	}
 
 	/// <summary>Parses POTION args: "use &lt;slot&gt; [targetIndex]" or "discard &lt;slot&gt;".</summary>

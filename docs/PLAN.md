@@ -16,7 +16,7 @@ This document is intentionally **step-by-step** and implementation-oriented. We 
 | 5 — Stability detector | 🔄 | CombatStateChanged + AfterActionExecuted; 150ms debounce; combat play-phase auto-send |
 | 6 — Command executors | 🔄 | STATE, PING, END, PLAY, EVENT_CHOOSE, REST_CHOOSE, MAP_CHOOSE; available_commands in state |
 | 7 — Choice integration | 🔄 | IpcCardSelector, choice_request/CHOOSE_RESPONSE; card reward + card_select |
-| 8 — Expand coverage | 🔄 | EVENT_CHOOSE, REST_CHOOSE, MAP_CHOOSE, POTION, PROCEED; screen, event_options, rest_site_options, map, potions |
+| 8 — Expand coverage | 🔄 | EVENT_CHOOSE, REST_CHOOSE, MAP_CHOOSE, POTION, PROCEED, START; screen, event_options, rest_site_options, map, potions |
 | 9 — Testing | 🔄 | random + simple_policy controllers; STATE_CHECKSUM when verbose; docs/TESTING.md |
 | 10 — Packaging + docs | 🔄 | README + docs/PROTOCOL.md (schema, commands, examples); versioning noted |
 
@@ -441,19 +441,20 @@ Initial commands:
 
 ---
 
-### Step 8 — Expand state + command coverage ⬜
+### Step 8 — Expand state + command coverage 🔄
 
 **Goal**: reach parity with the most valuable StS1 commands.
 
 Incremental expansions:
 
-- **8.1** Potions (`POTION use|discard slot [target]`)
-  - find the StS2 action pathway for potion use/discard and enqueue it
-- **8.2** Screen navigation (`PROCEED`, `RETURN`)
-  - prefer model/controller methods; only simulate clicks if there is no action path
-- **8.3** Map selection
-  - use existing synchronizers/commands if present
-- **8.4** Out-of-run (`START ...`) if the game exposes a safe entrypoint
+- **8.1** Potions (`POTION use|discard slot [target]`) ✅
+  - StS2 action pathway: `UsePotionAction` / `DiscardPotionGameAction`; state includes `potions` list.
+- **8.2** Screen navigation (`PROCEED`) ✅
+  - Event/rest_site/treasure/shop: `NEventRoom.Proceed()`, `NMapScreen.Open()`, `RunManager.ProceedFromTerminalRewardsScreen()`. RETURN not implemented.
+- **8.3** Map selection ✅
+  - `MAP_CHOOSE` with existing synchronizers/commands.
+- **8.4** Out-of-run (`START [character] [seed] [ascension]`) ✅
+  - Uses `NGame.Instance.StartNewSingleplayerRun` when not in run; character by index or id, optional seed/ascension; `available_commands` includes START when `!in_run`.
 
 **Deliverables**
 

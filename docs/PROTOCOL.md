@@ -181,7 +181,7 @@ Commands may be sent as **plain text** or **JSON**.
 COMMAND [arg1] [arg2] ...
 ```
 
-Examples: `STATE`, `PING`, `END`, `PLAY 0 1`, `EVENT_CHOOSE 0`, `REST_CHOOSE 1`, `MAP_CHOOSE 0`, `POTION use 0`, `POTION discard 1`, `PROCEED`
+Examples: `STATE`, `PING`, `END`, `PLAY 0 1`, `EVENT_CHOOSE 0`, `REST_CHOOSE 1`, `MAP_CHOOSE 0`, `POTION use 0`, `POTION discard 1`, `PROCEED`, `START`, `START Ironclad`, `START 0 myseed 5`
 
 ### JSON format
 
@@ -208,6 +208,7 @@ Examples: `STATE`, `PING`, `END`, `PLAY 0 1`, `EVENT_CHOOSE 0`, `REST_CHOOSE 1`,
 | `POTION` | `use <slot> [targetIndex]` | In run, has potions | Use potion at slot; optional target for single-target potions (enemy/ally index) |
 | `POTION` | `discard <slot>` | Out of combat, has potions | Discard potion at slot |
 | `PROCEED` | — | Event, rest_site, treasure, or shop screen (not in combat) | Leave current room/screen and open map |
+| `START` | `[character] [seed] [ascension]` | Not in run (main menu) | Start a new singleplayer run. Character: index 0-4 or id (Ironclad, Silent, Regent, Necrobinder, Defect). Seed/ascension optional; ascension 0-20. |
 
 ### Choice response (not a command)
 
