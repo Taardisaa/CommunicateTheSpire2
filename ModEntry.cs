@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using CommunicateTheSpire2.Choice;
 using CommunicateTheSpire2.Commands;
+using CommunicateTheSpire2.Stability;
 using CommunicateTheSpire2.Config;
 using CommunicateTheSpire2.Ipc;
 using CommunicateTheSpire2.Protocol;
@@ -24,6 +25,7 @@ public static class ModEntry
 	private static bool _shutdownRequested;
 	private static int _restartAttempts;
 	private static volatile bool _protocolActive;
+	private static StabilityDetector? _stabilityDetector;
 
 	static ModEntry()
 	{
@@ -151,13 +153,17 @@ public static class ModEntry
 
 				CommunicateTheSpireLog.Write("Controller handshake OK (received 'ready').");
 
-				// Enable protocol handling and send initial hello.
+				// Enable protocol handling, start stability detector, send initial hello.
 				lock (HostLock)
 				{
 					if (!ReferenceEquals(_host, host))
 						return;
 					_protocolActive = true;
 					_restartAttempts = 0;
+
+					_stabilityDetector?.Stop();
+					_stabilityDetector = new StabilityDetector(PublishStateIfActive, debounceMs: 150);
+					_stabilityDetector.Start();
 				}
 
 				SendJson(new HelloMessage());
@@ -182,6 +188,8 @@ public static class ModEntry
 			_host = null;
 			_hostCts = null;
 			_protocolActive = false;
+			_stabilityDetector?.Stop();
+			_stabilityDetector = null;
 		}
 
 		try { cts?.Cancel(); } catch { /* ignore */ }
@@ -207,6 +215,8 @@ public static class ModEntry
 			_hostCts = null;
 			_host = null;
 			_protocolActive = false;
+			_stabilityDetector?.Stop();
+			_stabilityDetector = null;
 
 			cfg = _config;
 			if (!_shutdownRequested &&
@@ -408,6 +418,24 @@ public static class ModEntry
 		}
 
 		return true;
+	}
+
+	/// <summary>Called by StabilityDetector when the game becomes stable. Sends state if protocol is active.</summary>
+	private static void PublishStateIfActive()
+	{
+		if (!_protocolActive)
+			return;
+
+		StdioProcessHost? host;
+		lock (HostLock)
+		{
+			host = _host;
+		}
+		if (host == null || !host.IsRunning)
+			return;
+
+		var state = SnapshotBuilder.BuildState();
+		SendJson(state);
 	}
 
 	private static void SendJson(object message)
