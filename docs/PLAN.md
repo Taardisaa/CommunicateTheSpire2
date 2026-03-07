@@ -12,9 +12,9 @@ This document is intentionally **step-by-step** and implementation-oriented. We 
 | 1 — Logging + config | 🔄 | Config JSON, main log, controller stderr; no in-game settings UI |
 | 2 — Process host | ✅ | StdioProcessHost with async stdio, handshake, SendLine |
 | 3 — Protocol schema | ✅ | hello, state, error, command, pong; ProtocolCommandParser; choice_request/response |
-| 4 — Snapshot builder | 🔄 | Run/combat/player/enemy/hand_cards, screen, event/rest_site/map options; no available_commands |
+| 4 — Snapshot builder | 🔄 | Run/combat/player/enemy/hand_cards, screen, event/rest_site/map options, available_commands |
 | 5 — Stability detector | 🔄 | CombatStateChanged + AfterActionExecuted; 150ms debounce; combat play-phase auto-send |
-| 6 — Command executors | 🔄 | STATE, PING, END, PLAY, EVENT_CHOOSE, REST_CHOOSE, MAP_CHOOSE; no available_commands |
+| 6 — Command executors | 🔄 | STATE, PING, END, PLAY, EVENT_CHOOSE, REST_CHOOSE, MAP_CHOOSE; available_commands in state |
 | 7 — Choice integration | 🔄 | IpcCardSelector, choice_request/CHOOSE_RESPONSE; card reward + card_select |
 | 8 — Expand coverage | 🔄 | EVENT_CHOOSE, REST_CHOOSE, MAP_CHOOSE; screen, event_options, rest_site_options, map |
 | 9 — Testing | 🔄 | random_controller.py; no formal determinism/failure tests |

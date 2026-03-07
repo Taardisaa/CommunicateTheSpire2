@@ -103,7 +103,33 @@ public static class SnapshotBuilder
 			msg.combat = combat;
 		}
 
+		PopulateAvailableCommands(msg);
 		return msg;
+	}
+
+	private static void PopulateAvailableCommands(StateMessage msg)
+	{
+		msg.available_commands.Add("STATE");
+		msg.available_commands.Add("PING");
+
+		if (msg.in_combat && msg.combat != null)
+		{
+			if (msg.combat.current_side == "Player")
+			{
+				msg.available_commands.Add("END");
+				if (msg.combat.hand_cards.Count > 0)
+					msg.available_commands.Add("PLAY");
+			}
+		}
+
+		if (msg.screen == "event" && msg.event_options.Count > 0)
+			msg.available_commands.Add("EVENT_CHOOSE");
+
+		if (msg.screen == "rest_site" && msg.rest_site_options.Count > 0)
+			msg.available_commands.Add("REST_CHOOSE");
+
+		if (msg.screen == "map" && msg.map != null && msg.map.reachable.Count > 0)
+			msg.available_commands.Add("MAP_CHOOSE");
 	}
 
 	private static Player? SafeGetLocalPlayer(CombatState combatState)

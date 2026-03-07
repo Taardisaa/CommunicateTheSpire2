@@ -102,7 +102,8 @@ Game state snapshot. Sent in response to STATE command or when the game becomes 
   },
   "event_options": [],
   "rest_site_options": [],
-  "map": null
+  "map": null,
+  "available_commands": ["STATE", "PING", "END", "PLAY"]
 }
 ```
 
@@ -118,6 +119,7 @@ Game state snapshot. Sent in response to STATE command or when the game becomes 
 | `event_options` | array | Options when `screen` = `"event"`; each has `index`, `text_key`, `title`, `is_locked`, `is_proceed` |
 | `rest_site_options` | array | Options when `screen` = `"rest_site"`; each has `index`, `option_id`, `title`, `is_enabled` |
 | `map` | object \| null | Present when `screen` = `"map"`; `current_coord` {col, row, point_type}, `reachable` array |
+| `available_commands` | array | Commands valid in this state; e.g. `["STATE","PING","END","PLAY"]`, `["EVENT_CHOOSE"]`, etc. |
 
 ### choice_request
 

@@ -54,6 +54,9 @@ public sealed class StateMessage
 	public List<EventOptionSummary> event_options { get; set; } = new List<EventOptionSummary>();
 	public List<RestSiteOptionSummary> rest_site_options { get; set; } = new List<RestSiteOptionSummary>();
 	public MapSummary? map { get; set; }
+
+	/// <summary>Commands currently valid for this state. E.g. ["STATE","PING","PLAY","END"].</summary>
+	public List<string> available_commands { get; set; } = new List<string>();
 }
 
 public sealed class RunSummary
