@@ -1,5 +1,7 @@
 using System;
 using System.Reflection;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using CommunicateTheSpire2.Choice;
@@ -283,6 +285,7 @@ public static class ModEntry
 				case "STATE":
 					{
 						var state = SnapshotBuilder.BuildState();
+						LogStateChecksumIfVerbose(state);
 						SendJson(state);
 						break;
 					}
@@ -435,7 +438,31 @@ public static class ModEntry
 			return;
 
 		var state = SnapshotBuilder.BuildState();
+		LogStateChecksumIfVerbose(state);
 		SendJson(state);
+	}
+
+	private static void LogStateChecksumIfVerbose(StateMessage state)
+	{
+		if (_config?.VerboseProtocolLogs != true)
+			return;
+		try
+		{
+			string json = ProtocolJson.Serialize(state);
+			string checksum = ComputeShortHash(json);
+			CommunicateTheSpireLog.Write($"[STATE_CHECKSUM] {checksum}");
+		}
+		catch
+		{
+			// ignore
+		}
+	}
+
+	private static string ComputeShortHash(string input)
+	{
+		byte[] bytes = Encoding.UTF8.GetBytes(input);
+		byte[] hash = SHA256.HashData(bytes);
+		return Convert.ToHexString(hash).AsSpan(0, Math.Min(16, hash.Length * 2)).ToString();
 	}
 
 	private static void SendJson(object message)

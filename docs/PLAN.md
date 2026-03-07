@@ -17,7 +17,7 @@ This document is intentionally **step-by-step** and implementation-oriented. We 
 | 6 — Command executors | 🔄 | STATE, PING, END, PLAY, EVENT_CHOOSE, REST_CHOOSE, MAP_CHOOSE; available_commands in state |
 | 7 — Choice integration | 🔄 | IpcCardSelector, choice_request/CHOOSE_RESPONSE; card reward + card_select |
 | 8 — Expand coverage | 🔄 | EVENT_CHOOSE, REST_CHOOSE, MAP_CHOOSE; screen, event_options, rest_site_options, map |
-| 9 — Testing | 🔄 | random_controller.py; no formal determinism/failure tests |
+| 9 — Testing | 🔄 | random + simple_policy controllers; STATE_CHECKSUM when verbose; docs/TESTING.md |
 | 10 — Packaging + docs | 🔄 | README + docs/PROTOCOL.md (schema, commands, examples); versioning noted |
 
 ---
