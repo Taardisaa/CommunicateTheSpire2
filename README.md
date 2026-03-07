@@ -2,11 +2,16 @@
 
 **[中文版](README_CN.md)**
 
-Slay the Spire 2 mod scaffolding for building an IPC bridge (inspired by StS1 CommunicationMod). Currently this repo is a scaffold: it verifies mod loading and writes logs.
+Slay the Spire 2 mod for external process control over stdio (inspired by StS1 CommunicationMod). An external controller can observe game state and issue combat commands.
 
 ## Status
 
-**Placeholder / under active development.** The current implementation only proves mod loading and includes a minimal **stdio transport + `ready` handshake** to a controller process. It does **not** yet stream game state or execute gameplay commands.
+**Under active development.** Current features:
+
+- **Transport**: spawns a configurable controller process, stdio line-based protocol, `ready` handshake
+- **State**: JSON snapshots via `STATE` (run, combat, player HP/energy, hand cards, enemies)
+- **Commands**: `STATE`, `PING`, `END` (end turn), `PLAY <handIndex> [targetIndex]` (play card)
+- **Not yet**: auto-send on stability, `CHOOSE` for rewards, potions, map navigation
 
 - **Roadmap**: see `docs/PLAN.md`
 
@@ -98,7 +103,33 @@ After Steps 1–3 you should have:
 
 ---
 
-## Part 2: Install the mod
+## Part 2: Controller configuration (optional)
+
+To use the IPC protocol, enable a controller in the config file:
+
+**Config path:** `%APPDATA%\SlayTheSpire2\CommunicateTheSpire2.config.json`
+
+Example (edit after first game launch with the mod):
+
+```json
+{
+  "enabled": true,
+  "command": "python -u controller/random_controller.py",
+  "working_directory": "C:\\path\\to\\CommunicateTheSpire2"
+}
+```
+
+**Protocol (NDJSON over stdin/stdout):**
+1. Controller prints `ready`
+2. Mod sends `hello` JSON
+3. Controller sends commands; mod sends responses
+4. Commands: `STATE` (get snapshot), `PING`, `END` (end turn), `PLAY 0 1` (play hand card 0, target enemy 1)
+
+See `controller/random_controller.py` for a minimal example.
+
+---
+
+## Part 3: Install the mod
 
 ### Step 1 — Locate the game’s mods folder
 

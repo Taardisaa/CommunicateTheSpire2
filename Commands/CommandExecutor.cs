@@ -1,0 +1,276 @@
+using System;
+using System.Linq;
+using CommunicateTheSpire2.Protocol;
+using MegaCrit.Sts2.Core.Combat;
+using MegaCrit.Sts2.Core.Context;
+using MegaCrit.Sts2.Core.Entities.Cards;
+using MegaCrit.Sts2.Core.Entities.Creatures;
+using MegaCrit.Sts2.Core.Entities.Players;
+using MegaCrit.Sts2.Core.GameActions;
+using MegaCrit.Sts2.Core.GameActions.Multiplayer;
+using MegaCrit.Sts2.Core.Helpers;
+using MegaCrit.Sts2.Core.Map;
+using MegaCrit.Sts2.Core.Models;
+using MegaCrit.Sts2.Core.Multiplayer.Game;
+using MegaCrit.Sts2.Core.Runs;
+using MegaCrit.Sts2.Core.Rooms;
+
+namespace CommunicateTheSpire2.Commands;
+
+public static class CommandExecutor
+{
+	public static bool TryExecuteEnd(out ErrorMessage? error)
+	{
+		error = null;
+		if (!CombatManager.Instance.IsInProgress)
+		{
+			error = new ErrorMessage { error = "NotInCombat", details = "Cannot end turn when not in combat." };
+			return false;
+		}
+
+		CombatState? combatState = CombatManager.Instance.DebugOnlyGetState();
+		if (combatState == null)
+		{
+			error = new ErrorMessage { error = "CombatStateUnavailable", details = "Could not get combat state." };
+			return false;
+		}
+
+		if (combatState.CurrentSide != CombatSide.Player)
+		{
+			error = new ErrorMessage { error = "NotPlayerTurn", details = "Cannot end turn during enemy turn." };
+			return false;
+		}
+
+		Player? me = SafeGetLocalPlayer(combatState);
+		if (me == null)
+		{
+			error = new ErrorMessage { error = "LocalPlayerUnavailable", details = "Could not get local player." };
+			return false;
+		}
+
+		int roundNumber = combatState.RoundNumber;
+		RunManager.Instance.ActionQueueSynchronizer.RequestEnqueue(new EndPlayerTurnAction(me, roundNumber));
+		return true;
+	}
+
+	public static bool TryExecutePlay(int handIndex, int? targetEnemyIndex, out ErrorMessage? error)
+	{
+		error = null;
+		if (!CombatManager.Instance.IsInProgress)
+		{
+			error = new ErrorMessage { error = "NotInCombat", details = "Cannot play cards when not in combat." };
+			return false;
+		}
+
+		CombatState? combatState = CombatManager.Instance.DebugOnlyGetState();
+		if (combatState == null)
+		{
+			error = new ErrorMessage { error = "CombatStateUnavailable", details = "Could not get combat state." };
+			return false;
+		}
+
+		if (combatState.CurrentSide != CombatSide.Player)
+		{
+			error = new ErrorMessage { error = "NotPlayerTurn", details = "Cannot play cards during enemy turn." };
+			return false;
+		}
+
+		Player? me = SafeGetLocalPlayer(combatState);
+		if (me == null || me.PlayerCombatState?.Hand == null)
+		{
+			error = new ErrorMessage { error = "LocalPlayerUnavailable", details = "Could not get local player or hand." };
+			return false;
+		}
+
+		var hand = PileType.Hand.GetPile(me).Cards;
+		if (handIndex < 0 || handIndex >= hand.Count)
+		{
+			error = new ErrorMessage
+			{
+				error = "InvalidHandIndex",
+				details = $"Hand index {handIndex} out of range (hand size {hand.Count}). Use 0-based indexing."
+			};
+			return false;
+		}
+
+		CardModel card = hand[handIndex];
+		Creature? target = null;
+
+		if (card.TargetType == TargetType.AnyEnemy || card.TargetType == TargetType.AnyAlly)
+		{
+			var validTargets = card.TargetType == TargetType.AnyEnemy ? combatState.Enemies : combatState.PlayerCreatures;
+			if (targetEnemyIndex.HasValue)
+			{
+				int idx = targetEnemyIndex.Value;
+				if (idx < 0 || idx >= validTargets.Count)
+				{
+					error = new ErrorMessage
+					{
+						error = "InvalidTargetIndex",
+						details = $"Target index {idx} out of range ({validTargets.Count} valid targets)."
+					};
+					return false;
+				}
+				target = validTargets[idx];
+			}
+			else
+			{
+				if (validTargets.Count == 1)
+					target = validTargets[0];
+				else if (validTargets.Count > 1)
+				{
+					error = new ErrorMessage
+					{
+						error = "TargetRequired",
+						details = $"Card requires a target. Provide target index 0..{validTargets.Count - 1}."
+					};
+					return false;
+				}
+			}
+		}
+		else if (card.TargetType == TargetType.Self)
+		{
+			target = me.Creature;
+		}
+
+		if (!card.CanPlay(out _, out _))
+		{
+			error = new ErrorMessage { error = "CardNotPlayable", details = $"Card at index {handIndex} is not playable." };
+			return false;
+		}
+
+		if (!card.IsValidTarget(target))
+		{
+			error = new ErrorMessage { error = "InvalidTarget", details = "Target is not valid for this card." };
+			return false;
+		}
+
+		RunManager.Instance.ActionQueueSynchronizer.RequestEnqueue(new PlayCardAction(card, target));
+		return true;
+	}
+
+	public static bool TryExecuteEventChoose(int index, out ErrorMessage? error)
+	{
+		error = null;
+		RunState? runState = RunManager.Instance.DebugOnlyGetState();
+		if (runState == null)
+		{
+			error = new ErrorMessage { error = "NoRun", details = "Not in a run." };
+			return false;
+		}
+		if (runState.CurrentRoom is not EventRoom)
+		{
+			error = new ErrorMessage { error = "NotEventRoom", details = "Not in an event room. EVENT_CHOOSE is only valid when screen=event." };
+			return false;
+		}
+
+		try
+		{
+			var localEvent = RunManager.Instance.EventSynchronizer.GetLocalEvent();
+			if (index < 0 || index >= localEvent.CurrentOptions.Count)
+			{
+				error = new ErrorMessage
+				{
+					error = "InvalidOptionIndex",
+					details = $"Event option index {index} out of range (0..{localEvent.CurrentOptions.Count - 1})."
+				};
+				return false;
+			}
+			RunManager.Instance.EventSynchronizer.ChooseLocalOption(index);
+			return true;
+		}
+		catch (Exception ex)
+		{
+			error = new ErrorMessage { error = "EventChooseFailed", details = ex.Message };
+			return false;
+		}
+	}
+
+	public static bool TryExecuteRestChoose(int index, out ErrorMessage? error)
+	{
+		error = null;
+		RunState? runState = RunManager.Instance.DebugOnlyGetState();
+		if (runState == null)
+		{
+			error = new ErrorMessage { error = "NoRun", details = "Not in a run." };
+			return false;
+		}
+		if (runState.CurrentRoom is not RestSiteRoom restSiteRoom)
+		{
+			error = new ErrorMessage { error = "NotRestSiteRoom", details = "Not in a rest site. REST_CHOOSE is only valid when screen=rest_site." };
+			return false;
+		}
+
+		var options = restSiteRoom.Options;
+		if (index < 0 || index >= options.Count)
+		{
+			error = new ErrorMessage
+			{
+				error = "InvalidOptionIndex",
+				details = $"Rest site option index {index} out of range (0..{options.Count - 1})."
+			};
+			return false;
+		}
+
+		TaskHelper.RunSafely(RunManager.Instance.RestSiteSynchronizer.ChooseLocalOption(index));
+		return true;
+	}
+
+	public static bool TryExecuteMapChoose(int index, out ErrorMessage? error)
+	{
+		error = null;
+		RunState? runState = RunManager.Instance.DebugOnlyGetState();
+		if (runState == null)
+		{
+			error = new ErrorMessage { error = "NoRun", details = "Not in a run." };
+			return false;
+		}
+		if (runState.CurrentRoom is not MapRoom)
+		{
+			error = new ErrorMessage { error = "NotMapRoom", details = "Not on map screen. MAP_CHOOSE is only valid when screen=map." };
+			return false;
+		}
+
+		MapPoint? currentPoint = runState.CurrentMapPoint;
+		if (currentPoint == null)
+		{
+			error = new ErrorMessage { error = "NoMapPoint", details = "No current map point." };
+			return false;
+		}
+
+		// Children order must match SnapshotBuilder (sorted by col, row).
+		var children = currentPoint.Children.OrderBy(c => c.coord.col).ThenBy(c => c.coord.row).ToList();
+		if (index < 0 || index >= children.Count)
+		{
+			error = new ErrorMessage
+			{
+				error = "InvalidMapIndex",
+				details = $"Map option index {index} out of range (0..{children.Count - 1}). Use reachable list from state."
+			};
+			return false;
+		}
+
+		MapPoint chosen = children[index];
+		Player? me = LocalContext.GetMe(runState);
+		if (me == null)
+		{
+			error = new ErrorMessage { error = "LocalPlayerUnavailable", details = "Could not get local player." };
+			return false;
+		}
+
+		RunManager.Instance.ActionQueueSynchronizer.RequestEnqueue(new MoveToMapCoordAction(me, chosen.coord));
+		return true;
+	}
+
+	private static Player? SafeGetLocalPlayer(CombatState combatState)
+	{
+		try
+		{
+			return LocalContext.GetMe(combatState);
+		}
+		catch
+		{
+			return combatState.Players.Count > 0 ? combatState.Players[0] : null;
+		}
+	}
+}

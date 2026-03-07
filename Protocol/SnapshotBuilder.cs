@@ -1,10 +1,20 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using CommunicateTheSpire2.Protocol;
 using MegaCrit.Sts2.Core.Combat;
 using MegaCrit.Sts2.Core.Context;
+using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Creatures;
 using MegaCrit.Sts2.Core.Entities.Players;
+using MegaCrit.Sts2.Core.Entities.RestSite;
+using MegaCrit.Sts2.Core.Events;
+using MegaCrit.Sts2.Core.Localization;
+using MegaCrit.Sts2.Core.Map;
+using MegaCrit.Sts2.Core.Models;
+using MegaCrit.Sts2.Core.Multiplayer.Game;
 using MegaCrit.Sts2.Core.Runs;
+using MegaCrit.Sts2.Core.Rooms;
 
 namespace CommunicateTheSpire2.Protocol;
 
@@ -29,6 +39,11 @@ public static class SnapshotBuilder
 				gold = runState.Players.Count > 0 ? runState.Players[0].Gold : 0,
 				room_type = runState.CurrentRoom?.RoomType.ToString()
 			};
+
+			msg.screen = GetScreen(runState);
+			PopulateEventOptions(msg, runState);
+			PopulateRestSiteOptions(msg, runState);
+			PopulateMapState(msg, runState);
 		}
 
 		CombatState? combatState = CombatManager.Instance.DebugOnlyGetState();
@@ -66,6 +81,25 @@ public static class SnapshotBuilder
 				});
 			}
 
+			if (me != null && me.PlayerCombatState?.Hand != null)
+			{
+				var hand = PileType.Hand.GetPile(me).Cards;
+				for (int i = 0; i < hand.Count; i++)
+				{
+					CardModel card = hand[i];
+					int energyCost = card.EnergyCost.CostsX ? -1 : card.EnergyCost.GetWithModifiers(CostModifiers.All);
+					bool playable = card.CanPlay(out _, out _);
+					combat.hand_cards.Add(new HandCardSummary
+					{
+						index = i,
+						id = card.Id.Entry,
+						energy_cost = energyCost,
+						target_type = card.TargetType.ToString(),
+						playable = playable
+					});
+				}
+			}
+
 			msg.combat = combat;
 		}
 
@@ -83,6 +117,119 @@ public static class SnapshotBuilder
 			// If LocalContext isn't initialized for some reason, fall back to the first player.
 			if (combatState.Players.Count > 0)
 				return combatState.Players[0];
+			return null;
+		}
+	}
+
+	private static string? GetScreen(RunState runState)
+	{
+		if (CombatManager.Instance.IsInProgress)
+			return "combat";
+
+		AbstractRoom? room = runState.CurrentRoom;
+		if (room == null)
+			return null;
+
+		return room.RoomType switch
+		{
+			RoomType.Event => "event",
+			RoomType.RestSite => "rest_site",
+			RoomType.Map => "map",
+			RoomType.Shop => "shop",
+			RoomType.Treasure => "treasure",
+			RoomType.Monster or RoomType.Elite or RoomType.Boss => "combat",
+			_ => "unknown"
+		};
+	}
+
+	private static void PopulateEventOptions(StateMessage msg, RunState runState)
+	{
+		if (runState.CurrentRoom is not EventRoom)
+			return;
+
+		try
+		{
+			var localEvent = RunManager.Instance.EventSynchronizer.GetLocalEvent();
+			var options = localEvent.CurrentOptions;
+			for (int i = 0; i < options.Count; i++)
+			{
+				var opt = options[i];
+				msg.event_options.Add(new EventOptionSummary
+				{
+					index = i,
+					text_key = opt.TextKey,
+					title = SafeGetLocText(opt.Title),
+					is_locked = opt.IsLocked,
+					is_proceed = opt.IsProceed
+				});
+			}
+		}
+		catch
+		{
+			// Event may not be ready; leave options empty.
+		}
+	}
+
+	private static void PopulateRestSiteOptions(StateMessage msg, RunState runState)
+	{
+		if (runState.CurrentRoom is not RestSiteRoom restSiteRoom)
+			return;
+
+		var options = restSiteRoom.Options;
+		for (int i = 0; i < options.Count; i++)
+		{
+			var opt = options[i];
+			msg.rest_site_options.Add(new RestSiteOptionSummary
+			{
+				index = i,
+				option_id = opt.OptionId,
+				title = SafeGetLocText(opt.Title),
+				is_enabled = opt.IsEnabled
+			});
+		}
+	}
+
+	private static void PopulateMapState(StateMessage msg, RunState runState)
+	{
+		if (runState.CurrentRoom is not MapRoom)
+			return;
+
+		var coord = runState.CurrentMapCoord;
+		var point = runState.CurrentMapPoint;
+		if (!coord.HasValue || point == null)
+			return;
+
+		msg.map = new MapSummary
+		{
+			current_coord = new MapCoordSummary
+			{
+				col = coord.Value.col,
+				row = coord.Value.row,
+				point_type = point.PointType.ToString()
+			},
+			reachable = new List<MapCoordSummary>()
+		};
+
+		// Order children by (col, row) for deterministic indexing.
+		foreach (MapPoint child in point.Children.OrderBy(c => c.coord.col).ThenBy(c => c.coord.row))
+		{
+			msg.map.reachable.Add(new MapCoordSummary
+			{
+				col = child.coord.col,
+				row = child.coord.row,
+				point_type = child.PointType.ToString()
+			});
+		}
+	}
+
+	private static string? SafeGetLocText(LocString loc)
+	{
+		try
+		{
+			return loc.GetRawText();
+		}
+		catch
+		{
 			return null;
 		}
 	}

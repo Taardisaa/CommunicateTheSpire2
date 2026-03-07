@@ -45,8 +45,15 @@ public sealed class StateMessage
 	public bool in_run { get; set; }
 	public bool in_combat { get; set; }
 
+	/// <summary>Current screen: "combat" | "event" | "rest_site" | "map" | "shop" | "treasure" | "unknown" | null (main menu).</summary>
+	public string? screen { get; set; }
+
 	public RunSummary? run { get; set; }
 	public CombatSummary? combat { get; set; }
+
+	public List<EventOptionSummary> event_options { get; set; } = new List<EventOptionSummary>();
+	public List<RestSiteOptionSummary> rest_site_options { get; set; } = new List<RestSiteOptionSummary>();
+	public MapSummary? map { get; set; }
 }
 
 public sealed class RunSummary
@@ -66,6 +73,16 @@ public sealed class CombatSummary
 
 	public PlayerSummary? local_player { get; set; }
 	public List<EnemySummary> enemies { get; set; } = new List<EnemySummary>();
+	public List<HandCardSummary> hand_cards { get; set; } = new List<HandCardSummary>();
+}
+
+public sealed class HandCardSummary
+{
+	public int index { get; set; }
+	public string? id { get; set; }
+	public int energy_cost { get; set; }
+	public string? target_type { get; set; }
+	public bool playable { get; set; }
 }
 
 public sealed class PlayerSummary
@@ -85,5 +102,35 @@ public sealed class EnemySummary
 	public int current_hp { get; set; }
 	public int max_hp { get; set; }
 	public int block { get; set; }
+}
+
+public sealed class EventOptionSummary
+{
+	public int index { get; set; }
+	public string? text_key { get; set; }
+	public string? title { get; set; }
+	public bool is_locked { get; set; }
+	public bool is_proceed { get; set; }
+}
+
+public sealed class RestSiteOptionSummary
+{
+	public int index { get; set; }
+	public string? option_id { get; set; }
+	public string? title { get; set; }
+	public bool is_enabled { get; set; }
+}
+
+public sealed class MapCoordSummary
+{
+	public int col { get; set; }
+	public int row { get; set; }
+	public string? point_type { get; set; }
+}
+
+public sealed class MapSummary
+{
+	public MapCoordSummary? current_coord { get; set; }
+	public List<MapCoordSummary> reachable { get; set; } = new List<MapCoordSummary>();
 }
 

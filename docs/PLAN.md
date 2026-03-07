@@ -4,6 +4,22 @@ Goal: create a **Slay the Spire 2** mod that provides an **IPC protocol** so an 
 
 This document is intentionally **step-by-step** and implementation-oriented. We will use it as the checklist for building the mod later.
 
+**Status legend:** ✅ Done | 🔄 Partial | ⬜ Not started
+
+| Step | Status | Notes |
+|------|--------|-------|
+| 0 — Repository scaffold | ✅ | Build, manifest, naming all updated |
+| 1 — Logging + config | 🔄 | Config JSON, main log; no separate controller stderr file yet |
+| 2 — Process host | ✅ | StdioProcessHost with async stdio, handshake, SendLine |
+| 3 — Protocol schema | ✅ | hello, state, error, command, pong; ProtocolCommandParser |
+| 4 — Snapshot builder | 🔄 | Run/combat/player/enemy/hand_cards; no available_commands yet |
+| 5 — Stability detector | ⬜ | Not started; STATE is request-only for now |
+| 6 — Command executors | 🔄 | STATE, PING, END, PLAY implemented; no available_commands in state |
+| 7 — Choice integration | ⬜ | Not started |
+| 8 — Expand coverage | 🔄 | EVENT_CHOOSE, REST_CHOOSE, MAP_CHOOSE; screen, event_options, rest_site_options, map in state |
+| 9 — Testing | 🔄 | random_controller.py exists; no formal determinism/failure tests |
+| 10 — Packaging + docs | 🔄 | README has build/install; protocol schema not fully documented |
+
 ---
 
 ## 1) General plan (high-level architecture)
@@ -194,7 +210,7 @@ Implication:
 
 This is the “do it in order” plan. Each step includes deliverables and verification.
 
-### Step 0 — Repository scaffold and naming cleanup
+### Step 0 — Repository scaffold and naming cleanup ✅
 
 **Goal**: turn the copied demo mod into a clean CommunicateTheSpire2 starting point.
 
@@ -219,7 +235,7 @@ This is the “do it in order” plan. Each step includes deliverables and verif
 
 ---
 
-### Step 1 — Logging + configuration layer
+### Step 1 — Logging + configuration layer 🔄
 
 **Goal**: implement robust logging and configuration before IPC.
 
@@ -249,7 +265,7 @@ This is the “do it in order” plan. Each step includes deliverables and verif
 
 ---
 
-### Step 2 — External process host (stdio-based)
+### Step 2 — External process host (stdio-based) ✅
 
 **Goal**: create a reliable child-process integration without blocking the main thread.
 
@@ -279,7 +295,7 @@ This is the “do it in order” plan. Each step includes deliverables and verif
 
 ---
 
-### Step 3 — Protocol schema (NDJSON)
+### Step 3 — Protocol schema (NDJSON) ✅
 
 **Goal**: define stable message types so external clients can integrate.
 
@@ -305,7 +321,7 @@ This is the “do it in order” plan. Each step includes deliverables and verif
 
 ---
 
-### Step 4 — State snapshot builder (minimum useful state)
+### Step 4 — State snapshot builder (minimum useful state) 🔄
 
 **Goal**: produce stable, compact, deterministic state payloads.
 
@@ -339,7 +355,7 @@ Recommended approach: start small, then expand.
 
 ---
 
-### Step 5 — Stability detector (“when to send state”)
+### Step 5 — Stability detector (“when to send state”) ⬜
 
 **Goal**: replicate the “send when stable” behavior from StS1, adapted to StS2.
 
@@ -366,7 +382,7 @@ Recommended approach: start small, then expand.
 
 ---
 
-### Step 6 — Command executors (start with deterministic actions)
+### Step 6 — Command executors (start with deterministic actions) 🔄
 
 **Goal**: execute a small command set via the action system.
 
@@ -395,7 +411,7 @@ Initial commands:
 
 ---
 
-### Step 7 — Choice integration (IPC-backed selectors)
+### Step 7 — Choice integration (IPC-backed selectors) ⬜
 
 **Goal**: implement `CHOOSE` robustly without UI scraping.
 
@@ -425,7 +441,7 @@ Initial commands:
 
 ---
 
-### Step 8 — Expand state + command coverage
+### Step 8 — Expand state + command coverage ⬜
 
 **Goal**: reach parity with the most valuable StS1 commands.
 
@@ -449,7 +465,7 @@ Incremental expansions:
 
 ---
 
-### Step 9 — Testing strategy (practical + repeatable)
+### Step 9 — Testing strategy (practical + repeatable) 🔄
 
 **Goal**: ensure changes don’t require “eyeballing” only.
 
@@ -468,7 +484,7 @@ Incremental expansions:
 
 ---
 
-### Step 10 — Packaging + documentation
+### Step 10 — Packaging + documentation 🔄
 
 **Goal**: make this usable by others.
 
@@ -484,7 +500,87 @@ Incremental expansions:
 
 ---
 
-## Appendix — Key code touchpoints (for later implementation)
+## Appendix A — Out-of-combat state & commands (from decompiled source)
+
+This section documents the StS2 structures for map, shop, event, rest site, etc., so we can extend the protocol.
+
+### Room types (`RoomType` enum)
+
+`Unassigned`, `Monster`, `Elite`, `Boss`, `Treasure`, `Shop`, `Event`, `RestSite`, `Map`
+
+### Current room & run state
+
+- `IRunState.CurrentRoom` → `AbstractRoom?` (null when on map)
+- `IRunState.Map` → `ActMap`
+- `IRunState.CurrentMapCoord` → `MapCoord?` (col, row)
+- `IRunState.CurrentMapPoint` → `MapPoint?`
+- `MapPoint`: `coord`, `PointType` (`MapPointType`: Monster, Elite, Boss, Shop, Event, RestSite, Treasure, Unknown, …), `Children`, `parents`
+
+### Map travel
+
+- **Action**: `MoveToMapCoordAction(player, MapCoord)` → `ActionQueueSynchronizer.RequestEnqueue(...)`
+- **Or** `RunManager.Instance.EnterMapCoord(MapCoord)` (direct)
+- **Or** `NMapScreen.Instance.TravelToMapCoord(MapCoord)` (triggers UI flow)
+- Reachable nodes: `NMapScreen.IsTravelEnabled` + `MapPointState.Travelable` on `NMapPoint`
+- Current position: `runState.CurrentMapCoord`; children of current point = next reachable nodes
+
+### Shop (MerchantRoom)
+
+- **Room**: `runState.CurrentRoom is MerchantRoom`
+- **Inventory**: `MerchantRoom.Inventory` → `MerchantInventory`
+  - `CharacterCardEntries`, `ColorlessCardEntries`, `RelicEntries`, `PotionEntries`, `CardRemovalEntry`
+- **Entry**: `MerchantEntry.Cost`, `EnoughGold`, `IsStocked`; purchase via `entry.OnTryPurchaseWrapper(inventory)`
+- **Note**: AutoSlay uses `NMerchantSlot` UI + `UiHelper.Click`. Model-level purchase exists via `OnTryPurchaseWrapper`; no dedicated GameAction for “buy slot X”.
+- **Proceed**: `NProceedButton` click after leaving shop
+
+### Event (EventRoom)
+
+- **Room**: `runState.CurrentRoom is EventRoom`
+- **Options**: `RunManager.Instance.EventSynchronizer.GetLocalEvent().CurrentOptions` → `IReadOnlyList<EventOption>`
+  - `EventOption`: `TextKey`, `Title`, `Description`, `IsLocked`, `IsProceed`, `Chosen()` (async)
+- **Choose**: `EventSynchronizer.ChooseLocalOption(optionIndex)` — model-level, no UI click
+- **Event ID**: `EventRoom.CanonicalEvent.Id` (ModelId)
+
+### Rest site (RestSiteRoom)
+
+- **Room**: `runState.CurrentRoom is RestSiteRoom`
+- **Options**: `RestSiteRoom.Options` → `IReadOnlyList<RestSiteOption>`
+  - `RestSiteOption`: `OptionId` (e.g. "HEAL", "SMITH", "MEND"), `Title`, `IsEnabled`, `OnSelect()` (async)
+- **Choose**: call `option.OnSelect()` on the chosen option
+- **Proceed**: `NRestSiteRoom.ProceedButton` click
+
+### Treasure room
+
+- Single relic choice; uses reward/card selection flow (`CardSelectCmd`, `ICardSelector`-style)
+- Proceed after claiming
+
+### Map room (room selection)
+
+- Shown when `CurrentRoom is MapRoom`
+- Reachable children from `CurrentMapPoint.Children` (filter by travel state)
+- Travel: `MoveToMapCoordAction` or `EnterMapCoord(coord)`
+
+### Commands to add (out-of-combat)
+
+| Command        | When                    | Implementation                                                                 |
+|----------------|-------------------------|--------------------------------------------------------------------------------|
+| `MAP_CHOOSE`   | Map room, travel enabled | `RequestEnqueue(new MoveToMapCoordAction(me, coord))` for a child of current  |
+| `EVENT_CHOOSE` | Event room              | `EventSynchronizer.ChooseLocalOption(index)`                                   |
+| `REST_CHOOSE`  | Rest site               | `RestSiteRoom.Options[index].OnSelect()`                                       |
+| `SHOP_BUY`     | Shop                    | `MerchantInventory` entry by index → `OnTryPurchaseWrapper` (need slot mapping)|
+| `PROCEED`      | Generic                 | Click `NProceedButton` or equivalent (room-specific)                           |
+
+### State snapshot additions (out-of-combat)
+
+- `screen`: `"map"` | `"shop"` | `"event"` | `"rest_site"` | `"treasure"` | `"combat"`
+- `map`: `{ current_coord: {col, row}, reachable: [{col, row, point_type}...] }`
+- `shop`: `{ gold, entries: [{index, type, id, cost, affordable}] }` (flatten AllEntries with index)
+- `event`: `{ event_id, options: [{index, text_key, title, is_proceed}] }`
+- `rest_site`: `{ options: [{index, option_id, title}] }`
+
+---
+
+## Appendix B — Key code touchpoints (for later implementation)
 
 - **Mod loading**: `src/Core/Modding/ModManager.cs`
 - **Hooks**: `src/Core/Hooks/Hook.cs`
@@ -495,5 +591,8 @@ Incremental expansions:
 - **Enqueue API**: `src/Core/GameActions/Multiplayer/ActionQueueSynchronizer.cs`
 - **Card selection**: `src/Core/Commands/CardSelectCmd.cs`, `src/Core/TestSupport/ICardSelector.cs`
 - **Snapshot inspiration**: `src/Core/Entities/Multiplayer/NetFullCombatState.cs`
-- **Noninteractive/test automation reference**: `src/Core/Helpers/NonInteractiveMode.cs`, `src/Core/AutoSlay/AutoSlayer.cs`
+- **Noninteractive/test automation reference**: `src/Core/AutoSlay/AutoSlayer.cs`, `src/Core/AutoSlay/Handlers/Rooms/*.cs`
+- **Out-of-combat**: `src/Core/Rooms/MerchantRoom.cs`, `EventRoom.cs`, `RestSiteRoom.cs`, `MapRoom.cs`
+- **Event options**: `src/Core/Multiplayer/Game/EventSynchronizer.cs` (ChooseLocalOption)
+- **Map travel**: `src/Core/GameActions/MoveToMapCoordAction.cs`, `RunManager.EnterMapCoord`, `NMapScreen.TravelToMapCoord`
 

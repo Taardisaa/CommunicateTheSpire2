@@ -5,10 +5,11 @@ namespace CommunicateTheSpire2.Protocol;
 
 public static class ProtocolCommandParser
 {
-	public static bool TryParse(string line, out string command, out string? requestId, out ErrorMessage? error)
+	public static bool TryParse(string line, out string command, out string? requestId, out string? args, out ErrorMessage? error)
 	{
 		command = "";
 		requestId = null;
+		args = null;
 		error = null;
 
 		if (line == null)
@@ -24,7 +25,7 @@ public static class ProtocolCommandParser
 			return false;
 		}
 
-		// Accept either a plain-text command line, or JSON: {"type":"command","command":"STATE","request_id":"..."}
+		// Accept either a plain-text command line, or JSON: {"type":"command","command":"PLAY","args":"0 1","request_id":"..."}
 		if (trimmed[0] == '{')
 		{
 			try
@@ -58,6 +59,9 @@ public static class ProtocolCommandParser
 				if (root.TryGetProperty("request_id", out JsonElement ridEl) && ridEl.ValueKind == JsonValueKind.String)
 					requestId = ridEl.GetString();
 
+				if (root.TryGetProperty("args", out JsonElement argsEl) && argsEl.ValueKind == JsonValueKind.String)
+					args = argsEl.GetString()?.Trim();
+
 				return true;
 			}
 			catch (Exception ex)
@@ -67,7 +71,7 @@ public static class ProtocolCommandParser
 			}
 		}
 
-		// Plain-text: take first token as the command.
+		// Plain-text: first token = command, remainder = args
 		int space = trimmed.IndexOf(' ');
 		command = (space < 0 ? trimmed : trimmed.Substring(0, space)).Trim();
 		if (command.Length == 0)
@@ -75,6 +79,8 @@ public static class ProtocolCommandParser
 			error = new ErrorMessage { error = "InvalidCommand", details = "No command token found." };
 			return false;
 		}
+		if (space >= 0 && space + 1 < trimmed.Length)
+			args = trimmed.Substring(space + 1).Trim();
 
 		return true;
 	}

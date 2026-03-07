@@ -2,6 +2,7 @@ using System;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using CommunicateTheSpire2.Commands;
 using CommunicateTheSpire2.Config;
 using CommunicateTheSpire2.Ipc;
 using CommunicateTheSpire2.Protocol;
@@ -253,16 +254,15 @@ public static class ModEntry
 	{
 		try
 		{
-			if (!ProtocolCommandParser.TryParse(line, out string command, out string? _, out ErrorMessage? error))
+			if (!ProtocolCommandParser.TryParse(line, out string command, out string? _, out string? args, out ErrorMessage? error))
 			{
 				if (error != null)
-				{
 					SendJson(error);
-				}
 				return;
 			}
 
-			switch (command.ToUpperInvariant())
+			string cmd = command.ToUpperInvariant();
+			switch (cmd)
 			{
 				case "STATE":
 					{
@@ -272,31 +272,136 @@ public static class ModEntry
 					}
 				case "PING":
 					{
-						var pong = new PongMessage();
-						SendJson(pong);
+						SendJson(new PongMessage());
+						break;
+					}
+				case "END":
+					{
+						if (CommandExecutor.TryExecuteEnd(out error))
+							SendJson(new { type = "end_queued", ok = true });
+						else if (error != null)
+							SendJson(error);
+						break;
+					}
+				case "PLAY":
+					{
+						int handIndex;
+						int? targetIndex = null;
+						if (!TryParsePlayArgs(args ?? "", out handIndex, out targetIndex, out error))
+						{
+							if (error != null)
+								SendJson(error);
+							break;
+						}
+						if (CommandExecutor.TryExecutePlay(handIndex, targetIndex, out error))
+							SendJson(new { type = "play_queued", ok = true, hand_index = handIndex });
+						else if (error != null)
+							SendJson(error);
+						break;
+					}
+				case "EVENT_CHOOSE":
+					{
+						if (!TryParseSingleIntArgs(args ?? "", "EVENT_CHOOSE", out int idx, out error))
+						{
+							if (error != null)
+								SendJson(error);
+							break;
+						}
+						if (CommandExecutor.TryExecuteEventChoose(idx, out error))
+							SendJson(new { type = "event_choose_queued", ok = true, index = idx });
+						else if (error != null)
+							SendJson(error);
+						break;
+					}
+				case "REST_CHOOSE":
+					{
+						if (!TryParseSingleIntArgs(args ?? "", "REST_CHOOSE", out int idx, out error))
+						{
+							if (error != null)
+								SendJson(error);
+							break;
+						}
+						if (CommandExecutor.TryExecuteRestChoose(idx, out error))
+							SendJson(new { type = "rest_choose_queued", ok = true, index = idx });
+						else if (error != null)
+							SendJson(error);
+						break;
+					}
+				case "MAP_CHOOSE":
+					{
+						if (!TryParseSingleIntArgs(args ?? "", "MAP_CHOOSE", out int idx, out error))
+						{
+							if (error != null)
+								SendJson(error);
+							break;
+						}
+						if (CommandExecutor.TryExecuteMapChoose(idx, out error))
+							SendJson(new { type = "map_choose_queued", ok = true, index = idx });
+						else if (error != null)
+							SendJson(error);
 						break;
 					}
 				default:
+					SendJson(new ErrorMessage
 					{
-						var err = new ErrorMessage
-						{
-							error = "UnknownCommand",
-							details = $"Command '{command}' is not supported."
-						};
-						SendJson(err);
-						break;
-					}
+						error = "UnknownCommand",
+						details = $"Command '{command}' is not supported. Supported: STATE, PING, END, PLAY, EVENT_CHOOSE, REST_CHOOSE, MAP_CHOOSE."
+					});
+					break;
 			}
 		}
 		catch (Exception ex)
 		{
-			var err = new ErrorMessage
-			{
-				error = "CommandHandlingError",
-				details = ex.Message
-			};
-			SendJson(err);
+			SendJson(new ErrorMessage { error = "CommandHandlingError", details = ex.Message });
 		}
+	}
+
+	private static bool TryParseSingleIntArgs(string args, string cmdName, out int value, out ErrorMessage? error)
+	{
+		value = 0;
+		error = null;
+		string[] parts = string.IsNullOrWhiteSpace(args) ? Array.Empty<string>() : args.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+		if (parts.Length == 0)
+		{
+			error = new ErrorMessage { error = "InvalidArgs", details = $"{cmdName} requires an integer index. Usage: {cmdName} <index>" };
+			return false;
+		}
+		if (!int.TryParse(parts[0], out value))
+		{
+			error = new ErrorMessage { error = "InvalidArgs", details = $"{cmdName} index must be an integer." };
+			return false;
+		}
+		return true;
+	}
+
+	private static bool TryParsePlayArgs(string args, out int handIndex, out int? targetIndex, out ErrorMessage? error)
+	{
+		handIndex = 0;
+		targetIndex = null;
+		error = null;
+
+		string[] parts = string.IsNullOrWhiteSpace(args) ? Array.Empty<string>() : args.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+		if (parts.Length == 0)
+		{
+			error = new ErrorMessage { error = "InvalidArgs", details = "PLAY requires hand index. Usage: PLAY <handIndex> [targetIndex]" };
+			return false;
+		}
+		if (!int.TryParse(parts[0], out handIndex))
+		{
+			error = new ErrorMessage { error = "InvalidArgs", details = "Hand index must be an integer." };
+			return false;
+		}
+		if (parts.Length >= 2)
+		{
+			if (!int.TryParse(parts[1], out int t))
+			{
+				error = new ErrorMessage { error = "InvalidArgs", details = "Target index must be an integer." };
+				return false;
+			}
+			targetIndex = t;
+		}
+
+		return true;
 	}
 
 	private static void SendJson(object message)
