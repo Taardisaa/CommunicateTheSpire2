@@ -87,6 +87,20 @@ public sealed class CombatSummary
 	public PlayerSummary? local_player { get; set; }
 	public List<EnemySummary> enemies { get; set; } = new List<EnemySummary>();
 	public List<HandCardSummary> hand_cards { get; set; } = new List<HandCardSummary>();
+
+	/// <summary>Draw pile (top first).</summary>
+	public List<CardPileEntry> draw_pile { get; set; } = new List<CardPileEntry>();
+	/// <summary>Discard pile.</summary>
+	public List<CardPileEntry> discard_pile { get; set; } = new List<CardPileEntry>();
+	/// <summary>Exhaust pile.</summary>
+	public List<CardPileEntry> exhaust_pile { get; set; } = new List<CardPileEntry>();
+}
+
+/// <summary>Card entry in draw/discard/exhaust pile (no playability, just id and upgrade).</summary>
+public sealed class CardPileEntry
+{
+	public string? id { get; set; }
+	public bool upgraded { get; set; }
 }
 
 public sealed class HandCardSummary
@@ -115,6 +129,15 @@ public sealed class EnemySummary
 	public int current_hp { get; set; }
 	public int max_hp { get; set; }
 	public int block { get; set; }
+
+	/// <summary>Intent type (e.g. Attack, Buff, Debuff, Defend).</summary>
+	public string? intent { get; set; }
+	/// <summary>Move state id (e.g. STRIKE_MOVE).</summary>
+	public string? move_id { get; set; }
+	/// <summary>Total damage from attack intents; 0 if none.</summary>
+	public int damage { get; set; }
+	/// <summary>Number of hits for multi-attacks; 1 for single, 0 if not attacking.</summary>
+	public int hits { get; set; }
 }
 
 public sealed class EventOptionSummary

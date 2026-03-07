@@ -14,6 +14,8 @@ using MegaCrit.Sts2.Core.Map;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Multiplayer.Game;
 using MegaCrit.Sts2.Core.Runs;
+using MegaCrit.Sts2.Core.MonsterMoves.Intents;
+using MegaCrit.Sts2.Core.MonsterMoves.MonsterMoveStateMachine;
 using MegaCrit.Sts2.Core.Rooms;
 
 namespace CommunicateTheSpire2.Protocol;
@@ -72,33 +74,51 @@ public static class SnapshotBuilder
 
 			foreach (Creature enemy in combatState.Enemies)
 			{
-				combat.enemies.Add(new EnemySummary
+				var summary = new EnemySummary
 				{
 					combat_id = enemy.CombatId,
 					name = enemy.Name,
 					current_hp = enemy.CurrentHp,
 					max_hp = enemy.MaxHp,
 					block = enemy.Block
-				});
+				};
+
+				if (enemy.Monster?.NextMove != null)
+				{
+					var nextMove = enemy.Monster.NextMove;
+					summary.move_id = nextMove.Id;
+					summary.intent = GetPrimaryIntentType(nextMove);
+					(summary.damage, summary.hits) = GetIntentDamageAndHits(nextMove, enemy);
+				}
+
+				combat.enemies.Add(summary);
 			}
 
-			if (me != null && me.PlayerCombatState?.Hand != null)
+			if (me != null && me.PlayerCombatState != null)
 			{
-				var hand = PileType.Hand.GetPile(me).Cards;
-				for (int i = 0; i < hand.Count; i++)
+				var pcs = me.PlayerCombatState;
+				if (pcs.Hand != null)
 				{
-					CardModel card = hand[i];
-					int energyCost = card.EnergyCost.CostsX ? -1 : card.EnergyCost.GetWithModifiers(CostModifiers.All);
-					bool playable = card.CanPlay(out _, out _);
-					combat.hand_cards.Add(new HandCardSummary
+					var hand = PileType.Hand.GetPile(me).Cards;
+					for (int i = 0; i < hand.Count; i++)
 					{
-						index = i,
-						id = card.Id.Entry,
-						energy_cost = energyCost,
-						target_type = card.TargetType.ToString(),
-						playable = playable
-					});
+						CardModel card = hand[i];
+						int energyCost = card.EnergyCost.CostsX ? -1 : card.EnergyCost.GetWithModifiers(CostModifiers.All);
+						bool playable = card.CanPlay(out _, out _);
+						combat.hand_cards.Add(new HandCardSummary
+						{
+							index = i,
+							id = card.Id.Entry,
+							energy_cost = energyCost,
+							target_type = card.TargetType.ToString(),
+							playable = playable
+						});
+					}
 				}
+
+				PopulatePile(combat.draw_pile, pcs.DrawPile.Cards);
+				PopulatePile(combat.discard_pile, pcs.DiscardPile.Cards);
+				PopulatePile(combat.exhaust_pile, pcs.ExhaustPile.Cards);
 			}
 
 			msg.combat = combat;
@@ -281,6 +301,50 @@ public static class SnapshotBuilder
 				col = child.coord.col,
 				row = child.coord.row,
 				point_type = child.PointType.ToString()
+			});
+		}
+	}
+
+	private static string GetPrimaryIntentType(MoveState nextMove)
+	{
+		foreach (var intent in nextMove.Intents)
+		{
+			var t = intent.IntentType;
+			if (t == IntentType.Attack || t == IntentType.DeathBlow)
+				return t.ToString();
+		}
+		return nextMove.Intents.Count > 0 ? nextMove.Intents[0].IntentType.ToString() : "Unknown";
+	}
+
+	private static (int damage, int hits) GetIntentDamageAndHits(MoveState nextMove, Creature enemy)
+	{
+		foreach (var intent in nextMove.Intents)
+		{
+			if (intent is AttackIntent attackIntent)
+			{
+				try
+				{
+					int damage = attackIntent.GetTotalDamage(enemy.CombatState?.Allies ?? Array.Empty<Creature>(), enemy);
+					int hits = attackIntent is MultiAttackIntent multi ? multi.Repeats : 1;
+					return (damage, hits);
+				}
+				catch
+				{
+					return (0, 0);
+				}
+			}
+		}
+		return (0, 0);
+	}
+
+	private static void PopulatePile(List<CardPileEntry> target, System.Collections.Generic.IReadOnlyList<CardModel> cards)
+	{
+		foreach (CardModel card in cards)
+		{
+			target.Add(new CardPileEntry
+			{
+				id = card.Id.Entry,
+				upgraded = card.IsUpgraded
 			});
 		}
 	}
