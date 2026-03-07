@@ -16,5 +16,8 @@
     <Reference Include="sts2" HintPath="$(Sts2GamePath)\sts2.dll" />
     <Reference Include="0Harmony" HintPath="$(Sts2GamePath)\0Harmony.dll" />
   </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="Tests\**" />
+  </ItemGroup>
 </Project>
 

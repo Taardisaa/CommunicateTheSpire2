@@ -12,13 +12,13 @@ This document is intentionally **step-by-step** and implementation-oriented. We 
 | 1 — Logging + config | 🔄 | Config JSON, main log, controller stderr; no in-game settings UI |
 | 2 — Process host | ✅ | StdioProcessHost with async stdio, handshake, SendLine |
 | 3 — Protocol schema | ✅ | hello, state, error, command, pong; ProtocolCommandParser; choice_request/response |
-| 4 — Snapshot builder | 🔄 | Run/combat/player/enemy/hand_cards, screen, event/rest_site/map options, available_commands |
-| 5 — Stability detector | 🔄 | CombatStateChanged + AfterActionExecuted; 150ms debounce; combat play-phase auto-send |
-| 6 — Command executors | 🔄 | STATE, PING, END, PLAY, EVENT_CHOOSE, REST_CHOOSE, MAP_CHOOSE; available_commands in state |
-| 7 — Choice integration | 🔄 | IpcCardSelector, choice_request/CHOOSE_RESPONSE; card reward + card_select |
-| 8 — Expand coverage | 🔄 | EVENT_CHOOSE, REST_CHOOSE, MAP_CHOOSE, POTION, PROCEED, START; screen, event_options, rest_site_options, map, potions |
-| 9 — Testing | 🔄 | random + simple_policy controllers; STATE_CHECKSUM when verbose; docs/TESTING.md |
-| 10 — Packaging + docs | 🔄 | README + docs/PROTOCOL.md (schema, commands, examples); versioning noted |
+| 4 — Snapshot builder | ✅ | Run/combat/player/enemy/hand_cards, screen, event/rest_site/map/potions, available_commands |
+| 5 — Stability detector | ✅ | CombatStateChanged + AfterActionExecuted; 150ms debounce; combat play-phase auto-send |
+| 6 — Command executors | ✅ | STATE, PING, END, PLAY, EVENT_CHOOSE, REST_CHOOSE, MAP_CHOOSE, POTION, PROCEED, START; available_commands in state |
+| 7 — Choice integration | ✅ | IpcCardSelector, choice_request/CHOOSE_RESPONSE; card reward + card_select; patch NCardRewardSelectionScreen |
+| 8 — Expand coverage | ✅ | Potions, PROCEED (event/rest_site/treasure/shop), MAP_CHOOSE, START (out-of-run); state fields for all |
+| 9 — Testing | ✅ | random + simple_policy controllers; STATE_CHECKSUM; C# parser unit tests; test_failure_modes.py; docs/TESTING.md |
+| 10 — Packaging + docs | 🔄 | README + docs/PROTOCOL.md (build, install, commands); versioning in manifest/hello; no in-game settings UI |
 
 ---
 
@@ -470,18 +470,14 @@ Incremental expansions:
 
 **Goal**: ensure changes don’t require “eyeballing” only.
 
-- **9.1** Local loopback controller
-  - add a tiny sample controller script (Python/C#) that:
-    - prints `ready`
-    - logs received state
-    - issues a simple policy (`PLAY first playable else END`)
-- **9.2** Determinism checks
-  - log a checksum of relevant snapshot fields
-  - verify the same seed produces identical state evolution (as feasible)
-- **9.3** Failure mode testing
-  - controller crash: mod should stop sending, log clearly, optionally restart
-  - invalid command: error JSON returned
-  - timeouts: handled gracefully
+- **9.1** Local loopback controller ✅
+  - `random_controller.py`, `simple_policy_controller.py`; print `ready`, log state, issue PLAY/END or first-option policy.
+- **9.2** Determinism checks ✅
+  - State checksum logged when `verbose_protocol_logs`; same seed + controller → comparable evolution.
+- **9.3** Failure mode testing ✅
+  - **C#:** `Tests/ProtocolCommandParserTests.cs` — 12 unit tests for parser (null, empty, plain/JSON, invalid JSON). Run: `dotnet test CommunicateTheSpire2/Tests/CtS2.Tests.csproj`.
+  - **Integration:** `controller/tests/test_failure_modes.py` — run as controller; sends invalid commands, asserts error JSON. Doc: `docs/TESTING.md`, `controller/tests/README.md`.
+  - Controller crash / invalid command / timeouts documented in TESTING.md.
 
 ---
 

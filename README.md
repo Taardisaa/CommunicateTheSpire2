@@ -129,7 +129,7 @@ Example (edit after first game launch with the mod):
 4. Commands: `STATE`, `PING`, `END`, `PLAY <handIndex> [targetIndex]`, `EVENT_CHOOSE <index>`, `REST_CHOOSE <index>`, `MAP_CHOOSE <index>`
 5. For choice screens, mod sends `choice_request`; controller responds with `CHOOSE_RESPONSE <choice_id> <index>` or `skip`
 
-See `docs/PROTOCOL.md` for full schema and examples. Controllers: `controller/random_controller.py` (random), `controller/simple_policy_controller.py` (PLAY first playable else END). See `docs/TESTING.md` for testing and failure modes.
+See `docs/PROTOCOL.md` for full schema and examples. Controllers: `controller/random_controller.py` (random), `controller/simple_policy_controller.py` (PLAY first playable else END). **Tests:** `dotnet test CommunicateTheSpire2/Tests/CtS2.Tests.csproj` (parser unit tests); `controller/tests/test_failure_modes.py` (run as controller for integration). See `docs/TESTING.md` for testing and failure modes.
 
 ---
 

@@ -21,7 +21,32 @@ This document describes how to test the CommunicateTheSpire2 mod and controller 
 
 ---
 
-## 2. Failure Modes
+## 2. C# unit tests (protocol parser)
+
+**Tests/ProtocolCommandParserTests.cs** exercises `ProtocolCommandParser.TryParse` (plain and JSON commands, null/empty, invalid JSON). No game required.
+
+From the repo root:
+
+```bash
+dotnet test CommunicateTheSpire2/Tests/CtS2.Tests.csproj
+```
+
+If the mod’s `lib/` has **sts2.dll** and **0Harmony.dll**, the test project copies them to its output so the mod DLL can load. Tests only call the parser; they do not start the game.
+
+---
+
+## 3. Automated failure-mode test (integration)
+
+**controller/tests/test_failure_modes.py** runs as the controller and verifies that invalid input produces error JSON. Use it to confirm the mod’s failure behavior without playing.
+
+1. Set config so the controller is this script, e.g. `"command": "python -u controller/tests/test_failure_modes.py"` and correct `working_directory`.
+2. Start the game (main menu is enough).
+3. The script sends invalid commands (empty line, unknown command, bad JSON, `PLAY`/`END`/`POTION`/`EVENT_CHOOSE` with bad or missing args) and asserts each response has `"type": "error"`.
+4. Exits 0 if all checks pass, 1 otherwise. See **controller/tests/README.md** for details.
+
+---
+
+## 4. Failure Modes (reference)
 
 ### Controller crash / exit
 
@@ -46,7 +71,7 @@ This document describes how to test the CommunicateTheSpire2 mod and controller 
 
 ---
 
-## 3. Determinism and checksums
+## 5. Determinism and checksums
 
 - **Same seed, same controller, same policy:** With a deterministic controller (e.g. `simple_policy_controller` always picking first option), the same run seed should yield the same sequence of states and decisions. This is best verified by the game’s own run replay or by comparing state snapshots at key points.
 - **State checksum (optional):** With `verbose_protocol_logs: true` in config, the mod logs a line `[STATE_CHECKSUM] <hex>` after each state send. The checksum is the first 16 hex characters of SHA256(state JSON). You can grep the log for `STATE_CHECKSUM` to get a sequence of checksums; the same run with the same controller should produce the same sequence.
@@ -60,7 +85,7 @@ Select-String -Path "$env:APPDATA\SlayTheSpire2\CommunicateTheSpire2.log" -Patte
 
 ---
 
-## 4. Manual test flow
+## 6. Manual test flow
 
 1. Build and install the mod; set config to use `simple_policy_controller.py` with `enabled: true`.
 2. Start the game, start a run, enter combat.
@@ -71,7 +96,7 @@ Select-String -Path "$env:APPDATA\SlayTheSpire2\CommunicateTheSpire2.log" -Patte
 
 ---
 
-## 5. Config reference for testing
+## 7. Config reference for testing
 
 ```json
 {

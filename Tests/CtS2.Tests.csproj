@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net90</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>12</LangVersion>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>CommunicateTheSpire2.Tests</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\CtS2.csproj" />
+  </ItemGroup>
+  <!-- Copy game DLLs to test output when present so mod can load at runtime -->
+  <ItemGroup Condition="Exists('$(ProjectDir)..\lib\sts2.dll')">
+    <Content Include="$(ProjectDir)..\lib\sts2.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>sts2.dll</Link>
+      <Visible>false</Visible>
+    </Content>
+    <Content Include="$(ProjectDir)..\lib\0Harmony.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>0Harmony.dll</Link>
+      <Visible>false</Visible>
+    </Content>
+  </ItemGroup>
+</Project>
