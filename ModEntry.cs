@@ -2,11 +2,13 @@ using System;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using CommunicateTheSpire2.Choice;
 using CommunicateTheSpire2.Commands;
 using CommunicateTheSpire2.Config;
 using CommunicateTheSpire2.Ipc;
 using CommunicateTheSpire2.Protocol;
 using HarmonyLib;
+using MegaCrit.Sts2.Core.Commands;
 using MegaCrit.Sts2.Core.Logging;
 using MegaCrit.Sts2.Core.Modding;
 
@@ -62,6 +64,7 @@ public static class ModEntry
 			else
 			{
 				StartControllerAsync(cfg, false);
+				CardSelectCmd.PushSelector(new IpcCardSelector());
 			}
 
 			// Apply our Harmony patches (game only runs PatchAll when there is no ModInitializer, so we do it here).
@@ -254,6 +257,9 @@ public static class ModEntry
 	{
 		try
 		{
+			if (IpcChoiceBridge.TryHandleResponse(line))
+				return;
+
 			if (!ProtocolCommandParser.TryParse(line, out string command, out string? _, out string? args, out ErrorMessage? error))
 			{
 				if (error != null)
@@ -345,7 +351,7 @@ public static class ModEntry
 					SendJson(new ErrorMessage
 					{
 						error = "UnknownCommand",
-						details = $"Command '{command}' is not supported. Supported: STATE, PING, END, PLAY, EVENT_CHOOSE, REST_CHOOSE, MAP_CHOOSE."
+						details = $"Command '{command}' is not supported. Supported: STATE, PING, END, PLAY, EVENT_CHOOSE, REST_CHOOSE, MAP_CHOOSE. For choice screens, respond with CHOOSE_RESPONSE <choice_id> <index> or skip."
 					});
 					break;
 			}
@@ -405,6 +411,12 @@ public static class ModEntry
 	}
 
 	private static void SendJson(object message)
+	{
+		SendJsonToController(message);
+	}
+
+	/// <summary>Called by IpcChoiceBridge to send choice_request. Same assembly, no circular dep.</summary>
+	internal static void SendJsonToController(object message)
 	{
 		StdioProcessHost? host;
 		lock (HostLock)

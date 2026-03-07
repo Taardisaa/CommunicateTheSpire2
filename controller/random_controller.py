@@ -35,34 +35,52 @@ def main():
     except Exception as e:
         log("[controller] failed to parse hello JSON:", e)
 
-    # Main loop: repeatedly ask for STATE and print a random "strategy" decision.
+    # Kick off by requesting state.
+    send_line(json.dumps({"type": "command", "command": "STATE"}))
+    log("[controller] sent initial STATE")
+
+    # Main loop: read lines (state, choice_request, etc.) and respond.
     while True:
-        # Random delay between 0.5s and 2.0s to simulate "thinking time".
-        time.sleep(random.uniform(0.5, 2.0))
-
-        # Request a fresh state snapshot.
-        cmd = {"type": "command", "command": "STATE"}
-        send_line(json.dumps(cmd))
-        log("[controller] sent:", cmd)
-
-        state_line = read_line()
-        if state_line is None:
+        line = read_line()
+        if line is None:
             log("[controller] stdin closed; exiting.")
             break
 
-        state_line = state_line.strip()
-        if not state_line:
+        line = line.strip()
+        if not line:
             continue
 
         try:
-            state = json.loads(state_line)
+            msg = json.loads(line)
         except Exception as e:
-            log("[controller] failed to parse state JSON:", e, "raw:", state_line)
+            log("[controller] failed to parse JSON:", e, "raw:", line)
             continue
 
-        if state.get("type") != "state":
-            log("[controller] non-state message:", state)
+        msg_type = msg.get("type", "")
+
+        if msg_type == "choice_request":
+            # Respond to card/reward choice. Pick random option or skip.
+            choice_id = msg.get("choice_id", "")
+            options = msg.get("options", [])
+            if options:
+                idx = random.randint(0, len(options) - 1)
+                send_line(f"CHOOSE_RESPONSE {choice_id} {idx}")
+                log(f"[controller] choice_response: {choice_id} index={idx}")
+            else:
+                send_line(f"CHOOSE_RESPONSE {choice_id} skip")
+                log(f"[controller] choice_response: {choice_id} skip")
             continue
+
+        if msg_type != "state":
+            log("[controller] unhandled message type:", msg_type)
+            continue
+
+        state = msg
+
+        # Random delay, then request next state.
+        time.sleep(random.uniform(0.5, 2.0))
+        send_line(json.dumps({"type": "command", "command": "STATE"}))
+        log("[controller] sent STATE")
 
         # Very naive "random strategy": just log a random description
         # based on current HP and number of enemies.

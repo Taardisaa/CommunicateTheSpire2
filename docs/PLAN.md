@@ -15,7 +15,7 @@ This document is intentionally **step-by-step** and implementation-oriented. We 
 | 4 — Snapshot builder | 🔄 | Run/combat/player/enemy/hand_cards; no available_commands yet |
 | 5 — Stability detector | ⬜ | Not started; STATE is request-only for now |
 | 6 — Command executors | 🔄 | STATE, PING, END, PLAY implemented; no available_commands in state |
-| 7 — Choice integration | ⬜ | Not started |
+| 7 — Choice integration | 🔄 | IpcCardSelector, choice_request/CHOOSE_RESPONSE; card reward + card_select |
 | 8 — Expand coverage | 🔄 | EVENT_CHOOSE, REST_CHOOSE, MAP_CHOOSE; screen, event_options, rest_site_options, map in state |
 | 9 — Testing | 🔄 | random_controller.py exists; no formal determinism/failure tests |
 | 10 — Packaging + docs | 🔄 | README has build/install; protocol schema not fully documented |

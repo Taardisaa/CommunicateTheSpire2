@@ -10,8 +10,9 @@ Slay the Spire 2 mod for external process control over stdio (inspired by StS1 C
 
 - **Transport**: spawns a configurable controller process, stdio line-based protocol, `ready` handshake
 - **State**: JSON snapshots via `STATE` (run, combat, player HP/energy, hand cards, enemies)
-- **Commands**: `STATE`, `PING`, `END` (end turn), `PLAY <handIndex> [targetIndex]` (play card)
-- **Not yet**: auto-send on stability, `CHOOSE` for rewards, potions, map navigation
+- **Commands**: `STATE`, `PING`, `END`, `PLAY`, `EVENT_CHOOSE`, `REST_CHOOSE`, `MAP_CHOOSE`
+- **Choice integration**: mod sends `choice_request` for card rewards/selects; controller responds with `CHOOSE_RESPONSE <choice_id> <index>` or `skip`
+- **Not yet**: auto-send on stability, potions
 
 - **Roadmap**: see `docs/PLAN.md`
 
