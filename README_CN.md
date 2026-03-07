@@ -76,7 +76,7 @@ dotnet build SlayTheSpire2-demo-mod/DemoMod.csproj -c Release -p:Sts2GamePath="D
 2. 在**仓库根目录**下运行（如需请调整 Godot 路径）：
 
 ```bash
-"D:\Software\Godot_v4.5.1-stable_mono_win64\Godot_v4.5.1-stable_mono_win64_console.exe" --headless --path CommunicateTheSpire2/pck_only --export-pack "PCK" CommunicateTheSpire2/CommunicateTheSpire2.pck
+"D:\Software\Godot_v4.5.1-stable_mono_win64\Godot_v4.5.1-stable_mono_win64_console.exe" --headless --path CommunicateTheSpire2/pck_only --export-pack "PCK" ../CommunicateTheSpire2.pck
 ```
 
 或者在 Godot 编辑器中打开 **CommunicateTheSpire2/pck_only**，使用 **项目 → 导出 → PCK** 将 **CommunicateTheSpire2.pck** 导出到 **CommunicateTheSpire2** 文件夹。

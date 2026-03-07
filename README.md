@@ -43,20 +43,20 @@ The mod DLL is built against the game’s assemblies. You only need two DLLs fro
 From the **repository root** (the folder that contains `CommunicateTheSpire2/`), run:
 
 ```bash
-dotnet build CommunicateTheSpire2/DemoMod.csproj -c Release
+dotnet build CommunicateTheSpire2/CtS2.csproj -c Release
 ```
 
 <!-- If you did not use **SlayTheSpire2-demo-mod/lib/** and instead use **STS2_GAME_PATH**, set it first (Windows PowerShell):
 
 ```powershell
 $env:STS2_GAME_PATH = "D:\Software\Steam\steamapps\common\Slay the Spire 2\data_sts2_windows_x86_64"
-dotnet build SlayTheSpire2-demo-mod/DemoMod.csproj -c Release
+dotnet build SlayTheSpire2-demo-mod/CtS2.csproj -c Release
 ``` -->
 <!-- 
 Or pass the path on the command line:
 
 ```bash
-dotnet build SlayTheSpire2-demo-mod/DemoMod.csproj -c Release -p:Sts2GamePath="D:\...\Slay the Spire 2\data_sts2_windows_x86_64"
+dotnet build SlayTheSpire2-demo-mod/CtS2.csproj -c Release -p:Sts2GamePath="D:\...\Slay the Spire 2\data_sts2_windows_x86_64"
 ``` -->
 
 **Output:**  
@@ -76,7 +76,7 @@ The game loads mods only when it finds a **.pck** file. The PCK must contain **m
 2. From the **repository root**, run (adjust the Godot path if needed):
 
 ```bash
-"D:\Software\Godot_v4.5.1-stable_mono_win64\Godot_v4.5.1-stable_mono_win64_console.exe" --headless --path CommunicateTheSpire2/pck_only --export-pack "PCK" CommunicateTheSpire2/CommunicateTheSpire2.pck
+D:\Software\Godot_v4.5.1-stable_mono_win64\Godot_v4.5.1-stable_mono_win64_console.exe --headless --path CommunicateTheSpire2/pck_only --export-pack "PCK" ../CommunicateTheSpire2.pck
 ```
 
 Or open **CommunicateTheSpire2/pck_only** in the Godot editor and use **Project → Export → PCK** to export **CommunicateTheSpire2.pck** into the **CommunicateTheSpire2** folder.
@@ -154,7 +154,7 @@ The mod writes a log file so you can confirm it ran without using the console.
   - `Init() entered — ModManager called our initializer.`
   - `Harmony postfix ran after ModManager.Initialize — hooking works.`
 
-<!-- If **DemoMod.log** never appears, see **docs/mod-troubleshooting.md** (e.g. mods folder location, agreeing to load mods, or only having the DLL without the PCK). -->
+<!-- If **CtS2.log** never appears, see **docs/mod-troubleshooting.md** (e.g. mods folder location, agreeing to load mods, or only having the DLL without the PCK). -->
 
 <!-- ---
 
@@ -162,11 +162,11 @@ The mod writes a log file so you can confirm it ran without using the console.
 
 | Goal              | Action |
 |-------------------|--------|
-| **Build DLL**     | Put **sts2.dll** and **0Harmony.dll** in **SlayTheSpire2-demo-mod/lib/** (or set **STS2_GAME_PATH**), then run `dotnet build SlayTheSpire2-demo-mod/DemoMod.csproj -c Release`. |
-| **Build PCK**     | Run Godot with `--path SlayTheSpire2-demo-mod/pck_only --export-pack "PCK" SlayTheSpire2-demo-mod/DemoMod.pck`. |
-| **Install**       | Copy **DemoMod.pck** and **DemoMod.dll** into the game’s **mods** folder (next to the .exe). |
+| **Build DLL**     | Put **sts2.dll** and **0Harmony.dll** in **SlayTheSpire2-demo-mod/lib/** (or set **STS2_GAME_PATH**), then run `dotnet build SlayTheSpire2-demo-mod/CtS2.csproj -c Release`. |
+| **Build PCK**     | Run Godot with `--path SlayTheSpire2-demo-mod/pck_only --export-pack "PCK" SlayTheSpire2-demo-mod/CtS2.pck`. |
+| **Install**       | Copy **CtS2.pck** and **CtS2.dll** into the game’s **mods** folder (next to the .exe). |
 | **Enable**        | Start the game, accept the “enable mods?” popup if shown, restart when prompted. |
-| **Verify**        | Check **%APPDATA%\SlayTheSpire2\DemoMod.log** for the mod’s log lines. |
+| **Verify**        | Check **%APPDATA%\SlayTheSpire2\CtS2.log** for the mod’s log lines. |
 
 --- -->
 

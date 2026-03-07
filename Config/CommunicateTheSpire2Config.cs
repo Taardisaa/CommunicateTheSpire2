@@ -19,11 +19,51 @@ public sealed class CommunicateTheSpire2Config
 	[JsonPropertyName("working_directory")]
 	public string? WorkingDirectory { get; set; } = null;
 
+	// Backward-compat aliases for earlier config drafts.
+	[JsonPropertyName("ControllerCommand")]
+	public string? LegacyControllerCommand
+	{
+		set
+		{
+			if (!string.IsNullOrWhiteSpace(value) && string.IsNullOrWhiteSpace(Command))
+			{
+				Command = value;
+			}
+		}
+	}
+
+	[JsonPropertyName("ControllerWorkingDirectory")]
+	public string? LegacyControllerWorkingDirectory
+	{
+		set
+		{
+			if (!string.IsNullOrWhiteSpace(value) && string.IsNullOrWhiteSpace(WorkingDirectory))
+			{
+				WorkingDirectory = value;
+			}
+		}
+	}
+
 	[JsonPropertyName("handshake_timeout_seconds")]
 	public int HandshakeTimeoutSeconds { get; set; } = 10;
 
 	[JsonPropertyName("verbose_protocol_logs")]
 	public bool VerboseProtocolLogs { get; set; } = false;
+
+	[JsonPropertyName("restart_on_exit")]
+	public bool RestartOnExit { get; set; } = false;
+
+	/// <summary>
+	/// Max automatic restart attempts after unexpected exits. 0 disables retries.
+	/// </summary>
+	[JsonPropertyName("max_restart_attempts")]
+	public int MaxRestartAttempts { get; set; } = 0;
+
+	/// <summary>
+	/// Delay before restart attempt, in milliseconds.
+	/// </summary>
+	[JsonPropertyName("restart_backoff_ms")]
+	public int RestartBackoffMs { get; set; } = 1500;
 
 	/// <summary>
 	/// IPC startup mode. "spawn" starts a child process; "connect" is reserved for future endpoint attach.
@@ -93,6 +133,8 @@ public sealed class CommunicateTheSpire2Config
 		Command = (Command ?? "").Trim();
 		WorkingDirectory = string.IsNullOrWhiteSpace(WorkingDirectory) ? null : WorkingDirectory.Trim();
 		HandshakeTimeoutSeconds = Math.Max(1, HandshakeTimeoutSeconds);
+		MaxRestartAttempts = Math.Max(0, MaxRestartAttempts);
+		RestartBackoffMs = Math.Max(100, RestartBackoffMs);
 
 		string mode = (Mode ?? "").Trim().ToLowerInvariant();
 		if (mode != "spawn" && mode != "connect")

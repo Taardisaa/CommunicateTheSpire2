@@ -2,10 +2,10 @@ using System;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
-using HarmonyLib;
 using CommunicateTheSpire2.Config;
 using CommunicateTheSpire2.Ipc;
 using CommunicateTheSpire2.Protocol;
+using HarmonyLib;
 using MegaCrit.Sts2.Core.Logging;
 using MegaCrit.Sts2.Core.Modding;
 
@@ -17,6 +17,9 @@ public static class ModEntry
 	private static readonly object HostLock = new object();
 	private static StdioProcessHost? _host;
 	private static CancellationTokenSource? _hostCts;
+	private static CommunicateTheSpire2Config? _config;
+	private static bool _shutdownRequested;
+	private static int _restartAttempts;
 	private static volatile bool _protocolActive;
 
 	static ModEntry()
@@ -35,9 +38,12 @@ public static class ModEntry
 			AppDomain.CurrentDomain.ProcessExit += (_, _) => StopController();
 
 			var cfg = CommunicateTheSpire2Config.LoadOrCreateDefault();
+			_config = cfg;
+			_shutdownRequested = false;
+			_restartAttempts = 0;
 			CommunicateTheSpireLog.Write(
 				$"Loaded config from {CommunicateTheSpire2Config.ConfigPath} " +
-				$"(Enabled={cfg.Enabled}, Mode={cfg.Mode}, HandshakeTimeoutSeconds={cfg.HandshakeTimeoutSeconds}, VerboseProtocolLogs={cfg.VerboseProtocolLogs})");
+				$"(Enabled={cfg.Enabled}, Mode={cfg.Mode}, HandshakeTimeoutSeconds={cfg.HandshakeTimeoutSeconds}, VerboseProtocolLogs={cfg.VerboseProtocolLogs}, RestartOnExit={cfg.RestartOnExit}, MaxRestartAttempts={cfg.MaxRestartAttempts}, RestartBackoffMs={cfg.RestartBackoffMs})");
 			CommunicateTheSpireLog.Write($"Controller stderr log path: {CommunicateTheSpireLog.ControllerErrorLogPath}");
 
 			if (!cfg.Enabled)
@@ -54,7 +60,7 @@ public static class ModEntry
 			}
 			else
 			{
-				StartControllerAsync(cfg);
+				StartControllerAsync(cfg, false);
 			}
 
 			// Apply our Harmony patches (game only runs PatchAll when there is no ModInitializer, so we do it here).
@@ -69,8 +75,11 @@ public static class ModEntry
 		}
 	}
 
-	private static void StartControllerAsync(CommunicateTheSpire2Config cfg)
+	private static void StartControllerAsync(CommunicateTheSpire2Config cfg, bool isRestart)
 	{
+		StdioProcessHost host;
+		CancellationTokenSource cts;
+
 		lock (HostLock)
 		{
 			if (_host != null)
@@ -78,9 +87,18 @@ public static class ModEntry
 				CommunicateTheSpireLog.Write("Controller already running; skipping start.");
 				return;
 			}
-			_host = new StdioProcessHost();
-			_hostCts = new CancellationTokenSource();
-			_host.StdoutLine += line =>
+			if (_shutdownRequested)
+			{
+				CommunicateTheSpireLog.Write("Controller start skipped because shutdown is in progress.");
+				return;
+			}
+
+			host = new StdioProcessHost();
+			cts = new CancellationTokenSource();
+			_host = host;
+			_hostCts = cts;
+
+			host.StdoutLine += line =>
 			{
 				if (cfg.VerboseProtocolLogs)
 				{
@@ -93,7 +111,7 @@ public static class ModEntry
 					HandleControllerLine(line);
 				}
 			};
-			_host.StderrLine += line =>
+			host.StderrLine += line =>
 			{
 				CommunicateTheSpireLog.WriteControllerError(line);
 				if (cfg.VerboseProtocolLogs)
@@ -101,10 +119,10 @@ public static class ModEntry
 					CommunicateTheSpireLog.Write("[controller stderr] " + line);
 				}
 			};
-			_host.Exited += code =>
+			host.Exited += code =>
 			{
 				CommunicateTheSpireLog.Write($"Controller exited (code={code?.ToString() ?? "?"}).");
-				StopController();
+				HandleHostStopped(host, true, "process exited");
 			};
 		}
 
@@ -112,18 +130,18 @@ public static class ModEntry
 		{
 			try
 			{
-				CommunicateTheSpireLog.Write("Starting controller: " + cfg.Command);
-				bool ready = await _host!.StartAsync(
+				CommunicateTheSpireLog.Write((isRestart ? "Restarting" : "Starting") + " controller: " + cfg.Command);
+				bool ready = await host.StartAsync(
 					cfg.Command,
 					cfg.WorkingDirectory,
-					TimeSpan.FromSeconds(Math.Max(1, cfg.HandshakeTimeoutSeconds)),
+					TimeSpan.FromSeconds(cfg.HandshakeTimeoutSeconds),
 					line => string.Equals(line.Trim(), "ready", StringComparison.OrdinalIgnoreCase),
-					_hostCts!.Token);
+					cts.Token);
 
 				if (!ready)
 				{
-					CommunicateTheSpireLog.Write("Controller handshake timed out (did not receive 'ready'). Stopping controller.");
-					StopController();
+					CommunicateTheSpireLog.Write("Controller startup failed (handshake timed out or process exited before ready).");
+					HandleHostStopped(host, true, "startup failed");
 					return;
 				}
 
@@ -132,7 +150,10 @@ public static class ModEntry
 				// Enable protocol handling and send initial hello.
 				lock (HostLock)
 				{
+					if (!ReferenceEquals(_host, host))
+						return;
 					_protocolActive = true;
+					_restartAttempts = 0;
 				}
 
 				SendJson(new HelloMessage());
@@ -140,7 +161,7 @@ public static class ModEntry
 			catch (Exception ex)
 			{
 				CommunicateTheSpireLog.Write("Controller start FAILED: " + ex);
-				StopController();
+				HandleHostStopped(host, true, "startup exception");
 			}
 		});
 	}
@@ -151,6 +172,7 @@ public static class ModEntry
 		CancellationTokenSource? cts;
 		lock (HostLock)
 		{
+			_shutdownRequested = true;
 			host = _host;
 			cts = _hostCts;
 			_host = null;
@@ -161,6 +183,70 @@ public static class ModEntry
 		try { cts?.Cancel(); } catch { /* ignore */ }
 		try { cts?.Dispose(); } catch { /* ignore */ }
 		try { host?.Dispose(); } catch { /* ignore */ }
+		CommunicateTheSpireLog.Write("Controller host stopped.");
+	}
+
+	private static void HandleHostStopped(StdioProcessHost host, bool considerRestart, string reason)
+	{
+		CancellationTokenSource? cts = null;
+		bool shouldRestart = false;
+		int restartAttempt = 0;
+		int restartDelayMs = 0;
+		CommunicateTheSpire2Config? cfg = null;
+
+		lock (HostLock)
+		{
+			if (!ReferenceEquals(_host, host))
+				return;
+
+			cts = _hostCts;
+			_hostCts = null;
+			_host = null;
+			_protocolActive = false;
+
+			cfg = _config;
+			if (!_shutdownRequested &&
+				considerRestart &&
+				cfg != null &&
+				cfg.Enabled &&
+				cfg.IsSpawnMode &&
+				cfg.RestartOnExit &&
+				_restartAttempts < cfg.MaxRestartAttempts)
+			{
+				_restartAttempts++;
+				restartAttempt = _restartAttempts;
+				restartDelayMs = cfg.RestartBackoffMs;
+				shouldRestart = true;
+			}
+		}
+
+		try { cts?.Cancel(); } catch { /* ignore */ }
+		try { cts?.Dispose(); } catch { /* ignore */ }
+		try { host.Dispose(); } catch { /* ignore */ }
+
+		CommunicateTheSpireLog.Write($"Controller host transitioned to stopped ({reason}).");
+
+		if (!shouldRestart || cfg == null)
+			return;
+
+		CommunicateTheSpireLog.Write($"Scheduling controller restart attempt {restartAttempt}/{cfg.MaxRestartAttempts} in {restartDelayMs} ms.");
+		Task.Run(async () =>
+		{
+			try
+			{
+				await Task.Delay(restartDelayMs);
+				lock (HostLock)
+				{
+					if (_shutdownRequested || _host != null)
+						return;
+				}
+				StartControllerAsync(cfg, true);
+			}
+			catch (Exception ex)
+			{
+				CommunicateTheSpireLog.Write("Restart scheduling failed: " + ex);
+			}
+		});
 	}
 
 	private static void HandleControllerLine(string line)
@@ -221,7 +307,7 @@ public static class ModEntry
 			host = _host;
 		}
 
-		if (host == null || !host.IsRunning)
+		if (host == null || !host.IsRunning || !_protocolActive)
 			return;
 
 		try

@@ -7,6 +7,14 @@ using System.Threading.Tasks;
 
 namespace CommunicateTheSpire2.Ipc;
 
+public enum ProcessHostState
+{
+	Stopped,
+	Starting,
+	Running,
+	Stopping
+}
+
 public sealed class StdioProcessHost : IDisposable
 {
 	private readonly object _lock = new object();
@@ -17,6 +25,7 @@ public sealed class StdioProcessHost : IDisposable
 	private Task? _stderrTask;
 	private Task? _stdinTask;
 	private readonly BlockingCollection<string> _stdinLines = new BlockingCollection<string>(new ConcurrentQueue<string>());
+	private ProcessHostState _state = ProcessHostState.Stopped;
 
 	public bool IsRunning
 	{
@@ -24,7 +33,18 @@ public sealed class StdioProcessHost : IDisposable
 		{
 			lock (_lock)
 			{
-				return _process != null && !_process.HasExited;
+				return _state == ProcessHostState.Running && _process != null && !_process.HasExited;
+			}
+		}
+	}
+
+	public ProcessHostState State
+	{
+		get
+		{
+			lock (_lock)
+			{
+				return _state;
 			}
 		}
 	}
@@ -42,8 +62,9 @@ public sealed class StdioProcessHost : IDisposable
 	{
 		lock (_lock)
 		{
-			if (_process != null)
-				throw new InvalidOperationException("Process already started.");
+			if (_state != ProcessHostState.Stopped)
+				throw new InvalidOperationException($"Process host is not stopped (state={_state}).");
+			_state = ProcessHostState.Starting;
 		}
 
 		var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -54,7 +75,13 @@ public sealed class StdioProcessHost : IDisposable
 		process.Exited += (_, _) => Exited?.Invoke(TryGetExitCode(process));
 
 		if (!process.Start())
+		{
+			lock (_lock)
+			{
+				_state = ProcessHostState.Stopped;
+			}
 			throw new InvalidOperationException("Failed to start controller process.");
+		}
 
 		lock (_lock)
 		{
@@ -65,11 +92,13 @@ public sealed class StdioProcessHost : IDisposable
 		_stderrTask = Task.Run(() => ReadLinesLoop(process.StandardError, StderrLine, linkedCts.Token), linkedCts.Token);
 		_stdinTask = Task.Run(() => WriteLinesLoop(process.StandardInput, linkedCts.Token), linkedCts.Token);
 
-		return WaitForReadyAsync(handshakeTimeout, isReadyLine, linkedCts.Token);
+		return CompleteStartupAsync(process, handshakeTimeout, isReadyLine, linkedCts.Token);
 	}
 
 	public void SendLine(string line)
 	{
+		if (!IsRunning)
+			return;
 		_stdinLines.Add(line);
 	}
 
@@ -79,6 +108,10 @@ public sealed class StdioProcessHost : IDisposable
 		CancellationTokenSource? cts;
 		lock (_lock)
 		{
+			if (_state == ProcessHostState.Stopped)
+				return;
+			_state = ProcessHostState.Stopping;
+
 			p = _process;
 			_process = null;
 			cts = _cts;
@@ -102,6 +135,10 @@ public sealed class StdioProcessHost : IDisposable
 		finally
 		{
 			try { p?.Dispose(); } catch { /* ignore */ }
+			lock (_lock)
+			{
+				_state = ProcessHostState.Stopped;
+			}
 		}
 	}
 
@@ -134,7 +171,27 @@ public sealed class StdioProcessHost : IDisposable
 		return psi;
 	}
 
-	private async Task<bool> WaitForReadyAsync(TimeSpan timeout, Func<string, bool> isReadyLine, CancellationToken ct)
+	private async Task<bool> CompleteStartupAsync(Process process, TimeSpan timeout, Func<string, bool> isReadyLine, CancellationToken ct)
+	{
+		bool ready = await WaitForReadyAsync(process, timeout, isReadyLine, ct);
+		if (!ready)
+		{
+			Stop();
+			return false;
+		}
+
+		lock (_lock)
+		{
+			if (_state == ProcessHostState.Starting)
+			{
+				_state = ProcessHostState.Running;
+			}
+		}
+
+		return true;
+	}
+
+	private async Task<bool> WaitForReadyAsync(Process process, TimeSpan timeout, Func<string, bool> isReadyLine, CancellationToken ct)
 	{
 		var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -149,9 +206,16 @@ public sealed class StdioProcessHost : IDisposable
 		StdoutLine += Handler;
 		try
 		{
-			Task completed = await Task.WhenAny(tcs.Task, Task.Delay(timeout, ct));
+			Task completed = await Task.WhenAny(
+				tcs.Task,
+				Task.Delay(timeout, ct),
+				process.WaitForExitAsync(ct));
 			if (completed == tcs.Task)
 				return true;
+			return false;
+		}
+		catch (OperationCanceledException)
+		{
 			return false;
 		}
 		finally
@@ -169,8 +233,7 @@ public sealed class StdioProcessHost : IDisposable
 				string? line = await reader.ReadLineAsync();
 				if (line == null)
 				{
-					await Task.Delay(10, ct);
-					continue;
+					break;
 				}
 				onLine?.Invoke(line);
 			}
