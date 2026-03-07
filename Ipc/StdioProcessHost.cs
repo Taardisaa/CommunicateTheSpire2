@@ -53,7 +53,7 @@ public sealed class StdioProcessHost : IDisposable
 	public event Action<string>? StderrLine;
 	public event Action<int?>? Exited;
 
-	public Task<bool> StartAsync(
+	public async Task<bool> StartAsync(
 		string controllerCommand,
 		string? workingDirectory,
 		TimeSpan handshakeTimeout,
@@ -88,11 +88,23 @@ public sealed class StdioProcessHost : IDisposable
 			_process = process;
 		}
 
+		// Subscribe handshake handler BEFORE starting the read loop so we don't miss "ready"
+		// if the controller prints it immediately (race: line could be delivered before we subscribe).
+		var readyTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+		void ReadyHandler(string line)
+		{
+			if (isReadyLine(line))
+				readyTcs.TrySetResult(true);
+		}
+		StdoutLine += ReadyHandler;
+
 		_stdoutTask = Task.Run(() => ReadLinesLoop(process.StandardOutput, StdoutLine, linkedCts.Token), linkedCts.Token);
 		_stderrTask = Task.Run(() => ReadLinesLoop(process.StandardError, StderrLine, linkedCts.Token), linkedCts.Token);
 		_stdinTask = Task.Run(() => WriteLinesLoop(process.StandardInput, linkedCts.Token), linkedCts.Token);
 
-		return CompleteStartupAsync(process, handshakeTimeout, isReadyLine, linkedCts.Token);
+		var result = await CompleteStartupAsync(process, handshakeTimeout, readyTcs.Task, linkedCts.Token);
+		StdoutLine -= ReadyHandler;
+		return result;
 	}
 
 	public void SendLine(string line)
@@ -171,9 +183,9 @@ public sealed class StdioProcessHost : IDisposable
 		return psi;
 	}
 
-	private async Task<bool> CompleteStartupAsync(Process process, TimeSpan timeout, Func<string, bool> isReadyLine, CancellationToken ct)
+	private async Task<bool> CompleteStartupAsync(Process process, TimeSpan timeout, Task<bool> readyTask, CancellationToken ct)
 	{
-		bool ready = await WaitForReadyAsync(process, timeout, isReadyLine, ct);
+		bool ready = await WaitForReadyAsync(process, timeout, readyTask, ct);
 		if (!ready)
 		{
 			Stop();
@@ -191,36 +203,21 @@ public sealed class StdioProcessHost : IDisposable
 		return true;
 	}
 
-	private async Task<bool> WaitForReadyAsync(Process process, TimeSpan timeout, Func<string, bool> isReadyLine, CancellationToken ct)
+	private async Task<bool> WaitForReadyAsync(Process process, TimeSpan timeout, Task<bool> readyTask, CancellationToken ct)
 	{
-		var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-
-		void Handler(string line)
-		{
-			if (isReadyLine(line))
-			{
-				tcs.TrySetResult(true);
-			}
-		}
-
-		StdoutLine += Handler;
 		try
 		{
 			Task completed = await Task.WhenAny(
-				tcs.Task,
+				readyTask,
 				Task.Delay(timeout, ct),
 				process.WaitForExitAsync(ct));
-			if (completed == tcs.Task)
+			if (completed == readyTask && readyTask.IsCompletedSuccessfully && readyTask.Result)
 				return true;
 			return false;
 		}
 		catch (OperationCanceledException)
 		{
 			return false;
-		}
-		finally
-		{
-			StdoutLine -= Handler;
 		}
 	}
 
