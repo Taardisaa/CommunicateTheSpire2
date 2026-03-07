@@ -181,7 +181,7 @@ Commands may be sent as **plain text** or **JSON**.
 COMMAND [arg1] [arg2] ...
 ```
 
-Examples: `STATE`, `PING`, `END`, `PLAY 0 1`, `EVENT_CHOOSE 0`, `REST_CHOOSE 1`, `MAP_CHOOSE 0`, `POTION use 0`, `POTION use 0 1`, `POTION discard 1`
+Examples: `STATE`, `PING`, `END`, `PLAY 0 1`, `EVENT_CHOOSE 0`, `REST_CHOOSE 1`, `MAP_CHOOSE 0`, `POTION use 0`, `POTION discard 1`, `PROCEED`
 
 ### JSON format
 
@@ -207,6 +207,7 @@ Examples: `STATE`, `PING`, `END`, `PLAY 0 1`, `EVENT_CHOOSE 0`, `REST_CHOOSE 1`,
 | `MAP_CHOOSE` | `<index>` | Map screen | Travel to reachable node by index |
 | `POTION` | `use <slot> [targetIndex]` | In run, has potions | Use potion at slot; optional target for single-target potions (enemy/ally index) |
 | `POTION` | `discard <slot>` | Out of combat, has potions | Discard potion at slot |
+| `PROCEED` | — | Event, rest_site, treasure, or shop screen (not in combat) | Leave current room/screen and open map |
 
 ### Choice response (not a command)
 

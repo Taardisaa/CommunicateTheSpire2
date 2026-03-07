@@ -388,11 +388,19 @@ public static class ModEntry
 						}
 						break;
 					}
+				case "PROCEED":
+					{
+						if (CommandExecutor.TryExecuteProceed(out error))
+							SendJson(new { type = "proceed_queued", ok = true });
+						else if (error != null)
+							SendJson(error);
+						break;
+					}
 				default:
 					SendJson(new ErrorMessage
 					{
 						error = "UnknownCommand",
-						details = $"Command '{command}' is not supported. Supported: STATE, PING, END, PLAY, EVENT_CHOOSE, REST_CHOOSE, MAP_CHOOSE, POTION. For choice screens, respond with CHOOSE_RESPONSE <choice_id> <index> or skip."
+						details = $"Command '{command}' is not supported. Supported: STATE, PING, END, PLAY, EVENT_CHOOSE, REST_CHOOSE, MAP_CHOOSE, POTION, PROCEED. For choice screens, respond with CHOOSE_RESPONSE <choice_id> <index> or skip."
 					});
 					break;
 			}

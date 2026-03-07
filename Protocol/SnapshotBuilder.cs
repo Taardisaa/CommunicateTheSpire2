@@ -159,6 +159,10 @@ public static class SnapshotBuilder
 
 		if (msg.screen == "map" && msg.map != null && msg.map.reachable.Count > 0)
 			msg.available_commands.Add("MAP_CHOOSE");
+
+		// PROCEED: leave current room/screen (event, rest_site, treasure, shop)
+		if (msg.in_run && !msg.in_combat && msg.screen is "event" or "rest_site" or "treasure" or "shop")
+			msg.available_commands.Add("PROCEED");
 	}
 
 	private static Player? SafeGetLocalPlayer(CombatState combatState)

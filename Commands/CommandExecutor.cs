@@ -14,6 +14,9 @@ using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Multiplayer.Game;
 using MegaCrit.Sts2.Core.Runs;
 using MegaCrit.Sts2.Core.Rooms;
+using MegaCrit.Sts2.Core.Nodes;
+using MegaCrit.Sts2.Core.Nodes.Rooms;
+using MegaCrit.Sts2.Core.Nodes.Screens.Map;
 
 namespace CommunicateTheSpire2.Commands;
 
@@ -398,6 +401,73 @@ public static class CommandExecutor
 
 		RunManager.Instance.ActionQueueSynchronizer.RequestEnqueue(new DiscardPotionGameAction(me, (uint)slotIndex));
 		return true;
+	}
+
+	public static bool TryExecuteProceed(out ErrorMessage? error)
+	{
+		error = null;
+		RunState? runState = RunManager.Instance.DebugOnlyGetState();
+		if (runState == null)
+		{
+			error = new ErrorMessage { error = "NoRun", details = "Not in a run." };
+			return false;
+		}
+
+		if (CombatManager.Instance.IsInProgress)
+		{
+			error = new ErrorMessage { error = "InCombat", details = "Cannot proceed during combat." };
+			return false;
+		}
+
+		AbstractRoom? room = runState.CurrentRoom;
+		if (room == null)
+		{
+			error = new ErrorMessage { error = "NoRoom", details = "No current room." };
+			return false;
+		}
+
+		switch (room.RoomType)
+		{
+			case RoomType.Event:
+				if (NEventRoom.Instance == null)
+				{
+					error = new ErrorMessage { error = "EventRoomUnavailable", details = "Event room node not available." };
+					return false;
+				}
+				TaskHelper.RunSafely(NEventRoom.Proceed());
+				return true;
+
+			case RoomType.RestSite:
+				if (NMapScreen.Instance == null)
+				{
+					error = new ErrorMessage { error = "MapScreenUnavailable", details = "Map screen not available." };
+					return false;
+				}
+				NMapScreen.Instance.Open();
+				return true;
+
+			case RoomType.Treasure:
+				TaskHelper.RunSafely(RunManager.Instance.ProceedFromTerminalRewardsScreen());
+				return true;
+
+			case RoomType.Shop:
+				// Merchant proceed button opens map (same as rest_site); no public HideScreen API
+				if (NMapScreen.Instance == null)
+				{
+					error = new ErrorMessage { error = "MapScreenUnavailable", details = "Map screen not available." };
+					return false;
+				}
+				NMapScreen.Instance.Open();
+				return true;
+
+			default:
+				error = new ErrorMessage
+				{
+					error = "ProceedNotAvailable",
+					details = $"PROCEED not available for room type {room.RoomType}. Use for event, rest_site, treasure, or shop."
+				};
+				return false;
+		}
 	}
 
 	private static Player? SafeGetLocalPlayer(CombatState combatState)
