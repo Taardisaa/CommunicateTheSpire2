@@ -55,8 +55,18 @@ public sealed class StateMessage
 	public List<RestSiteOptionSummary> rest_site_options { get; set; } = new List<RestSiteOptionSummary>();
 	public MapSummary? map { get; set; }
 
+	/// <summary>Local player's potion slots (when in run). Index matches POTION use/discard slot.</summary>
+	public List<PotionSummary> potions { get; set; } = new List<PotionSummary>();
+
 	/// <summary>Commands currently valid for this state. E.g. ["STATE","PING","PLAY","END"].</summary>
 	public List<string> available_commands { get; set; } = new List<string>();
+}
+
+public sealed class PotionSummary
+{
+	public int index { get; set; }
+	public string? id { get; set; }
+	public string? target_type { get; set; }
 }
 
 public sealed class RunSummary

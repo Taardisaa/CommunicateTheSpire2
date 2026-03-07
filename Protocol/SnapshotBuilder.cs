@@ -44,6 +44,7 @@ public static class SnapshotBuilder
 			PopulateEventOptions(msg, runState);
 			PopulateRestSiteOptions(msg, runState);
 			PopulateMapState(msg, runState);
+			PopulatePotions(msg, runState);
 		}
 
 		CombatState? combatState = CombatManager.Instance.DebugOnlyGetState();
@@ -107,6 +108,28 @@ public static class SnapshotBuilder
 		return msg;
 	}
 
+	private static void PopulatePotions(StateMessage msg, RunState runState)
+	{
+		Player? player = LocalContext.GetMe(runState);
+		if (player == null)
+			return;
+
+		var slots = player.PotionSlots;
+		for (int i = 0; i < slots.Count; i++)
+		{
+			var p = slots[i];
+			if (p != null)
+			{
+				msg.potions.Add(new PotionSummary
+				{
+					index = i,
+					id = p.Id.Entry,
+					target_type = p.TargetType.ToString()
+				});
+			}
+		}
+	}
+
 	private static void PopulateAvailableCommands(StateMessage msg)
 	{
 		msg.available_commands.Add("STATE");
@@ -119,7 +142,13 @@ public static class SnapshotBuilder
 				msg.available_commands.Add("END");
 				if (msg.combat.hand_cards.Count > 0)
 					msg.available_commands.Add("PLAY");
+				if (msg.potions.Count > 0)
+					msg.available_commands.Add("POTION");
 			}
+		}
+		else if (msg.potions.Count > 0)
+		{
+			msg.available_commands.Add("POTION");
 		}
 
 		if (msg.screen == "event" && msg.event_options.Count > 0)

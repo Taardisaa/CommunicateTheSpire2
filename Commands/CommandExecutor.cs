@@ -262,6 +262,144 @@ public static class CommandExecutor
 		return true;
 	}
 
+	public static bool TryExecutePotionUse(int slotIndex, int? targetIndex, out ErrorMessage? error)
+	{
+		error = null;
+		RunState? runState = RunManager.Instance.DebugOnlyGetState();
+		if (runState == null)
+		{
+			error = new ErrorMessage { error = "NoRun", details = "Not in a run." };
+			return false;
+		}
+
+		Player? me = LocalContext.GetMe(runState);
+		if (me == null)
+		{
+			error = new ErrorMessage { error = "LocalPlayerUnavailable", details = "Could not get local player." };
+			return false;
+		}
+
+		if (slotIndex < 0 || slotIndex >= me.PotionSlots.Count)
+		{
+			error = new ErrorMessage
+			{
+				error = "InvalidPotionSlot",
+				details = $"Potion slot {slotIndex} out of range (0..{me.PotionSlots.Count - 1})."
+			};
+			return false;
+		}
+
+		PotionModel? potion = me.GetPotionAtSlotIndex(slotIndex);
+		if (potion == null)
+		{
+			error = new ErrorMessage { error = "EmptyPotionSlot", details = $"No potion in slot {slotIndex}." };
+			return false;
+		}
+
+		uint? targetId = null;
+		ulong? targetPlayerId = null;
+		bool inCombat = CombatManager.Instance.IsInProgress;
+
+		if (potion.TargetType.IsSingleTarget())
+		{
+			if (potion.TargetType == TargetType.Self)
+			{
+				targetId = me.Creature.CombatId;
+				targetPlayerId = me.NetId;
+			}
+			else if (inCombat)
+			{
+				CombatState? combatState = CombatManager.Instance.DebugOnlyGetState();
+				if (combatState == null) { error = new ErrorMessage { error = "CombatStateUnavailable", details = "Could not get combat state." }; return false; }
+
+				var validTargets = potion.TargetType == TargetType.AnyEnemy ? combatState.Enemies : combatState.PlayerCreatures;
+				if (!targetIndex.HasValue)
+				{
+					if (validTargets.Count == 1)
+						targetId = validTargets[0].CombatId;
+					else if (validTargets.Count > 1)
+					{
+						error = new ErrorMessage { error = "TargetRequired", details = $"Potion requires a target. Provide target index 0..{validTargets.Count - 1}." };
+						return false;
+					}
+				}
+				else
+				{
+					if (targetIndex.Value < 0 || targetIndex.Value >= validTargets.Count)
+					{
+						error = new ErrorMessage { error = "InvalidTargetIndex", details = $"Target index {targetIndex.Value} out of range (0..{validTargets.Count - 1})." };
+						return false;
+					}
+					Creature target = validTargets[targetIndex.Value];
+					targetId = target.CombatId;
+					if (target.IsPlayer)
+						targetPlayerId = target.Player!.NetId;
+				}
+			}
+			else
+			{
+				if (!targetIndex.HasValue && runState.Players.Count > 1)
+				{
+					error = new ErrorMessage { error = "TargetRequired", details = "Potion requires a target. Provide target player index." };
+					return false;
+				}
+				int playerIndex = targetIndex ?? 0;
+				if (playerIndex < 0 || playerIndex >= runState.Players.Count)
+				{
+					error = new ErrorMessage { error = "InvalidTargetIndex", details = $"Target index {playerIndex} out of range." };
+					return false;
+				}
+				targetPlayerId = runState.Players[playerIndex].NetId;
+			}
+		}
+
+		RunManager.Instance.ActionQueueSynchronizer.RequestEnqueue(new UsePotionAction(me, (uint)slotIndex, targetId, targetPlayerId, inCombat));
+		return true;
+	}
+
+	public static bool TryExecutePotionDiscard(int slotIndex, out ErrorMessage? error)
+	{
+		error = null;
+		if (CombatManager.Instance.IsInProgress)
+		{
+			error = new ErrorMessage { error = "InCombat", details = "Cannot discard potions during combat. Use POTION use to use a potion." };
+			return false;
+		}
+
+		RunState? runState = RunManager.Instance.DebugOnlyGetState();
+		if (runState == null)
+		{
+			error = new ErrorMessage { error = "NoRun", details = "Not in a run." };
+			return false;
+		}
+
+		Player? me = LocalContext.GetMe(runState);
+		if (me == null)
+		{
+			error = new ErrorMessage { error = "LocalPlayerUnavailable", details = "Could not get local player." };
+			return false;
+		}
+
+		if (slotIndex < 0 || slotIndex >= me.PotionSlots.Count)
+		{
+			error = new ErrorMessage
+			{
+				error = "InvalidPotionSlot",
+				details = $"Potion slot {slotIndex} out of range (0..{me.PotionSlots.Count - 1})."
+			};
+			return false;
+		}
+
+		if (me.GetPotionAtSlotIndex(slotIndex) == null)
+		{
+			error = new ErrorMessage { error = "EmptyPotionSlot", details = $"No potion in slot {slotIndex}." };
+			return false;
+		}
+
+		RunManager.Instance.ActionQueueSynchronizer.RequestEnqueue(new DiscardPotionGameAction(me, (uint)slotIndex));
+		return true;
+	}
+
 	private static Player? SafeGetLocalPlayer(CombatState combatState)
 	{
 		try

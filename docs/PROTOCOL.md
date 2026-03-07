@@ -103,7 +103,11 @@ Game state snapshot. Sent in response to STATE command or when the game becomes 
   "event_options": [],
   "rest_site_options": [],
   "map": null,
-  "available_commands": ["STATE", "PING", "END", "PLAY"]
+  "potions": [
+    {"index": 0, "id": "PotionOfStrength", "target_type": "Self"},
+    {"index": 1, "id": "FirePotion", "target_type": "AnyEnemy"}
+  ],
+  "available_commands": ["STATE", "PING", "END", "PLAY", "POTION"]
 }
 ```
 
@@ -119,7 +123,8 @@ Game state snapshot. Sent in response to STATE command or when the game becomes 
 | `event_options` | array | Options when `screen` = `"event"`; each has `index`, `text_key`, `title`, `is_locked`, `is_proceed` |
 | `rest_site_options` | array | Options when `screen` = `"rest_site"`; each has `index`, `option_id`, `title`, `is_enabled` |
 | `map` | object \| null | Present when `screen` = `"map"`; `current_coord` {col, row, point_type}, `reachable` array |
-| `available_commands` | array | Commands valid in this state; e.g. `["STATE","PING","END","PLAY"]`, `["EVENT_CHOOSE"]`, etc. |
+| `potions` | array | Local player's potion slots (when in run); each has `index`, `id`, `target_type` |
+| `available_commands` | array | Commands valid in this state; e.g. `["STATE","PING","END","PLAY","POTION"]`, `["EVENT_CHOOSE"]`, etc. |
 
 ### choice_request
 
@@ -176,7 +181,7 @@ Commands may be sent as **plain text** or **JSON**.
 COMMAND [arg1] [arg2] ...
 ```
 
-Examples: `STATE`, `PING`, `END`, `PLAY 0 1`, `EVENT_CHOOSE 0`, `REST_CHOOSE 1`, `MAP_CHOOSE 0`
+Examples: `STATE`, `PING`, `END`, `PLAY 0 1`, `EVENT_CHOOSE 0`, `REST_CHOOSE 1`, `MAP_CHOOSE 0`, `POTION use 0`, `POTION use 0 1`, `POTION discard 1`
 
 ### JSON format
 
@@ -200,6 +205,8 @@ Examples: `STATE`, `PING`, `END`, `PLAY 0 1`, `EVENT_CHOOSE 0`, `REST_CHOOSE 1`,
 | `EVENT_CHOOSE` | `<index>` | Event screen | Choose event option by index |
 | `REST_CHOOSE` | `<index>` | Rest site | Choose rest option (0=Heal, 1=Smith, etc.) |
 | `MAP_CHOOSE` | `<index>` | Map screen | Travel to reachable node by index |
+| `POTION` | `use <slot> [targetIndex]` | In run, has potions | Use potion at slot; optional target for single-target potions (enemy/ally index) |
+| `POTION` | `discard <slot>` | Out of combat, has potions | Discard potion at slot |
 
 ### Choice response (not a command)
 
