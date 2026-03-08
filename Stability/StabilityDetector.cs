@@ -26,14 +26,23 @@ public sealed class StabilityDetector
 
 	public void Start()
 	{
+		// CombatManager.StateTracker is always initialized (set in ctor).
 		CombatManager.Instance.StateTracker.CombatStateChanged += OnCombatStateChanged;
-		RunManager.Instance.ActionExecutor.AfterActionExecuted += OnAfterActionExecuted;
+
+		// RunManager.ActionExecutor is only set when a run is started (InitializeShared).
+		// At main menu it's null — skip until a run exists.
+		var actionExecutor = RunManager.Instance.ActionExecutor;
+		if (actionExecutor != null)
+			actionExecutor.AfterActionExecuted += OnAfterActionExecuted;
 	}
 
 	public void Stop()
 	{
 		CombatManager.Instance.StateTracker.CombatStateChanged -= OnCombatStateChanged;
-		RunManager.Instance.ActionExecutor.AfterActionExecuted -= OnAfterActionExecuted;
+
+		var actionExecutor = RunManager.Instance.ActionExecutor;
+		if (actionExecutor != null)
+			actionExecutor.AfterActionExecuted -= OnAfterActionExecuted;
 
 		lock (_lock)
 		{
@@ -97,21 +106,16 @@ public sealed class StabilityDetector
 	/// <summary>True when the game is waiting for player input (combat play phase, no actions running).</summary>
 	private static bool IsStable()
 	{
-		try
-		{
-			if (!RunManager.Instance.IsInProgress)
-				return false;
-
-			if (CombatManager.Instance.IsInProgress)
-			{
-				return CombatManager.Instance.IsPlayPhase && !RunManager.Instance.ActionExecutor.IsRunning;
-			}
-
-			return true;
-		}
-		catch
-		{
+		if (!RunManager.Instance.IsInProgress)
 			return false;
-		}
+
+		var actionExecutor = RunManager.Instance.ActionExecutor;
+		if (actionExecutor == null)
+			return false; // No run yet; ActionExecutor is created when run starts
+
+		if (CombatManager.Instance.IsInProgress)
+			return CombatManager.Instance.IsPlayPhase && !actionExecutor.IsRunning;
+
+		return true;
 	}
 }

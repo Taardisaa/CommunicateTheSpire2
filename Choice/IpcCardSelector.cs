@@ -46,8 +46,7 @@ public sealed class IpcCardSelector : ICardSelector
 		}
 
 		var altNames = alternatives.Select(a => a.OptionId).ToList();
-		var resultTask = IpcChoiceBridge.RequestChoiceAsync("card_reward", choiceOptions, 0, 1, altNames);
-		var result = resultTask.GetAwaiter().GetResult();
+		var result = IpcChoiceBridge.RequestChoiceSync("card_reward", choiceOptions, 0, 1, altNames);
 
 		if (result.Skip || result.Indices.Length == 0)
 			return null;

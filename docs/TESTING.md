@@ -98,6 +98,10 @@ Select-String -Path "$env:APPDATA\SlayTheSpire2\CommunicateTheSpire2.log" -Patte
 
 ## 7. Config reference for testing
 
+**In-game config:** Settings → "Configure CommunicateTheSpire2" to edit enabled, command, and working directory without editing the JSON file. Changes apply on Save (controller restarts if enabled).
+
+**JSON config** (`%APPDATA%\\SlayTheSpire2\\CommunicateTheSpire2.config.json`):
+
 ```json
 {
   "enabled": true,

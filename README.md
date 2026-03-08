@@ -13,10 +13,21 @@ Slay the Spire 2 mod for external process control over stdio (inspired by StS1 C
 - **State**: JSON snapshots via `STATE` (run, combat, player HP/energy, hand cards, enemies, `available_commands`)
 - **Commands**: `STATE`, `PING`, `END`, `PLAY`, `EVENT_CHOOSE`, `REST_CHOOSE`, `MAP_CHOOSE`
 - **Choice integration**: mod sends `choice_request` for card rewards/selects; controller responds with `CHOOSE_RESPONSE <choice_id> <index>` or `skip`
-- **Not yet**: potions, shop purchase, in-game settings UI
+- **In-game config**: Settings → "Configure CommunicateTheSpire2" (enable/disable, command, working dir)
 
 - **Protocol**: full specification in `docs/PROTOCOL.md`
 - **Roadmap**: see `docs/PLAN.md`
+
+## Gap
+
+Priority gaps for AI / automation
+- Enemy intent – needed for block/ordering decisions
+- Relics – build context and synergies
+- Player / enemy powers – status effects, strength, weakness, etc.
+- RETURN – navigate back/cancel when needed
+- Shop screen – buying and removing cards
+- Combat reward – choosing rewards
+- Master deck – deck outside combat (map/rest, etc.)
 
 ---
 
@@ -129,7 +140,7 @@ Example (edit after first game launch with the mod):
 4. Commands: `STATE`, `PING`, `END`, `PLAY <handIndex> [targetIndex]`, `EVENT_CHOOSE <index>`, `REST_CHOOSE <index>`, `MAP_CHOOSE <index>`
 5. For choice screens, mod sends `choice_request`; controller responds with `CHOOSE_RESPONSE <choice_id> <index>` or `skip`
 
-See `docs/PROTOCOL.md` for full schema and examples. Controllers: `controller/random_controller.py` (random), `controller/simple_policy_controller.py` (PLAY first playable else END). **Tests:** `dotnet test CommunicateTheSpire2/Tests/CtS2.Tests.csproj` (parser unit tests); `controller/tests/test_failure_modes.py` (run as controller for integration). See `docs/TESTING.md` for testing and failure modes.
+See `docs/PROTOCOL.md` for full schema and examples. Controllers: `controller/random_controller.py` (random), `controller/simple_policy_controller.py` (PLAY first playable else END), `controller/interactive_shell_controller.py` (interactive shell over localhost; auto-launches `controller/interactive_shell_client.py` on Windows unless `--no-auto-client`). **Tests:** `dotnet test CommunicateTheSpire2/Tests/CtS2.Tests.csproj` (parser unit tests); `controller/tests/test_failure_modes.py` (run as controller for integration). See `docs/TESTING.md` for testing and failure modes.
 
 ---
 

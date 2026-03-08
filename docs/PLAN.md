@@ -9,7 +9,7 @@ This document is intentionally **step-by-step** and implementation-oriented. We 
 | Step | Status | Notes |
 |------|--------|-------|
 | 0 — Repository scaffold | ✅ | Build, manifest, naming all updated |
-| 1 — Logging + config | 🔄 | Config JSON, main log, controller stderr; no in-game settings UI |
+| 1 — Logging + config | ✅ | Config JSON, main log, controller stderr; in-game config via Settings → Configure CommunicateTheSpire2 |
 | 2 — Process host | ✅ | StdioProcessHost with async stdio, handshake, SendLine |
 | 3 — Protocol schema | ✅ | hello, state, error, command, pong; ProtocolCommandParser; choice_request/response |
 | 4 — Snapshot builder | ✅ | Run/combat/player/enemy/hand_cards, screen, event/rest_site/map/potions, available_commands |
@@ -18,7 +18,7 @@ This document is intentionally **step-by-step** and implementation-oriented. We 
 | 7 — Choice integration | ✅ | IpcCardSelector, choice_request/CHOOSE_RESPONSE; card reward + card_select; patch NCardRewardSelectionScreen |
 | 8 — Expand coverage | ✅ | Potions, PROCEED (event/rest_site/treasure/shop), MAP_CHOOSE, START (out-of-run); state fields for all |
 | 9 — Testing | ✅ | random + simple_policy controllers; STATE_CHECKSUM; C# parser unit tests; test_failure_modes.py; docs/TESTING.md |
-| 10 — Packaging + docs | 🔄 | README + docs/PROTOCOL.md (build, install, commands); versioning in manifest/hello; no in-game settings UI |
+| 10 — Packaging + docs | 🔄 | README + docs/PROTOCOL.md (build, install, commands); versioning in manifest/hello |
 
 ---
 

@@ -114,6 +114,24 @@ def main():
                 log("[policy] MAP_CHOOSE 0")
                 continue
 
+        if "REWARD_CHOOSE" in available:
+            rewards = state.get("rewards") or []
+            idx = 0
+            if rewards:
+                idx = rewards[0].get("index", 0)
+            send_line(json.dumps({"type": "command", "command": "REWARD_CHOOSE", "args": str(idx)}))
+            log("[policy] REWARD_CHOOSE", idx)
+            continue
+
+        if "BOSS_REWARD_CHOOSE" in available:
+            boss_reward = state.get("boss_reward") or []
+            idx = 0
+            if boss_reward:
+                idx = boss_reward[0].get("index", 0)
+            send_line(json.dumps({"type": "command", "command": "BOSS_REWARD_CHOOSE", "args": str(idx)}))
+            log("[policy] BOSS_REWARD_CHOOSE", idx)
+            continue
+
         send_line(json.dumps({"type": "command", "command": "STATE"}))
         log("[policy] no action; requested STATE")
 

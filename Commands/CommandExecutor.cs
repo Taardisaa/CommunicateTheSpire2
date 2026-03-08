@@ -1,11 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
+using Godot;
 using CommunicateTheSpire2.Protocol;
 using MegaCrit.Sts2.Core.Combat;
 using MegaCrit.Sts2.Core.Context;
 using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Creatures;
+using MegaCrit.Sts2.Core.Entities.Merchant;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.GameActions;
 using MegaCrit.Sts2.Core.GameActions.Multiplayer;
@@ -17,9 +20,17 @@ using MegaCrit.Sts2.Core.Runs;
 using MegaCrit.Sts2.Core.Rooms;
 using MegaCrit.Sts2.Core.Saves;
 using MegaCrit.Sts2.Core.Unlocks;
+using MegaCrit.Sts2.Core.ControllerInput;
 using MegaCrit.Sts2.Core.Nodes;
+using MegaCrit.Sts2.Core.AutoSlay.Helpers;
+using MegaCrit.Sts2.Core.Nodes.CommonUi;
 using MegaCrit.Sts2.Core.Nodes.Rooms;
+using MegaCrit.Sts2.Core.Nodes.Relics;
+using MegaCrit.Sts2.Core.Nodes.Rewards;
+using MegaCrit.Sts2.Core.Nodes.Screens;
 using MegaCrit.Sts2.Core.Nodes.Screens.Map;
+using MegaCrit.Sts2.Core.Nodes.Screens.Overlays;
+using MegaCrit.Sts2.Core.Nodes.Screens.Shops;
 
 namespace CommunicateTheSpire2.Commands;
 
@@ -473,6 +484,165 @@ public static class CommandExecutor
 		}
 	}
 
+	/// <summary>Clicks the back/cancel/leave button — close map overlay or close shop inventory.</summary>
+	public static bool TryExecuteReturn(out ErrorMessage? error)
+	{
+		error = null;
+		if (RunManager.Instance.DebugOnlyGetState() == null)
+		{
+			error = new ErrorMessage { error = "NoRun", details = "Not in a run." };
+			return false;
+		}
+
+		if (CombatManager.Instance.IsInProgress)
+		{
+			error = new ErrorMessage { error = "InCombat", details = "Cannot return during combat." };
+			return false;
+		}
+
+		// Map overlay open — close it (return to room)
+		if (NMapScreen.Instance?.IsOpen ?? false)
+		{
+			NMapScreen.Instance.Close();
+			return true;
+		}
+
+		// Shop inventory open — click back button to close
+		var merchantRoom = NMerchantRoom.Instance;
+		if (merchantRoom?.Inventory?.IsOpen ?? false)
+		{
+			var backButton = UiHelper.FindFirst<NBackButton>(merchantRoom);
+			if (backButton == null || !backButton.IsEnabled)
+			{
+				error = new ErrorMessage { error = "ReturnButtonUnavailable", details = "Shop back button not found or disabled." };
+				return false;
+			}
+			backButton.ForceClick();
+			return true;
+		}
+
+		error = new ErrorMessage
+		{
+			error = "ReturnNotAvailable",
+			details = "RETURN not available. Use when map overlay is open or shop inventory is open."
+		};
+		return false;
+	}
+
+	/// <summary>Simulates a keypress via Godot Input.ParseInputEvent. Key names match StS1 KEY command.</summary>
+	public static bool TryExecuteKey(string keyName, out ErrorMessage? error)
+	{
+		error = null;
+		if (RunManager.Instance.DebugOnlyGetState() == null)
+		{
+			error = new ErrorMessage { error = "NoRun", details = "KEY only available during a run." };
+			return false;
+		}
+
+		StringName? action = ResolveKeyName(keyName);
+		if (action == null)
+		{
+			error = new ErrorMessage
+			{
+				error = "InvalidKey",
+				details = $"Unknown key '{keyName}'. Supported: CONFIRM, CANCEL, MAP, DECK, DRAW_PILE, DISCARD_PILE, EXHAUST_PILE, END_TURN, UP, DOWN, LEFT, RIGHT, DROP_CARD, CARD_1..CARD_10, TOP_PANEL, PEEK, SELECT."
+			};
+			return false;
+		}
+
+		var evt = new InputEventAction { Action = action };
+		evt.Pressed = true;
+		Input.ParseInputEvent(evt);
+		evt.Pressed = false;
+		Input.ParseInputEvent(evt);
+		return true;
+	}
+
+	private static readonly Dictionary<string, StringName> KeyNameMap = new Dictionary<string, StringName>(StringComparer.OrdinalIgnoreCase)
+	{
+		{ "CONFIRM", MegaInput.accept },
+		{ "CANCEL", MegaInput.cancel },
+		{ "MAP", MegaInput.viewMap },
+		{ "DECK", MegaInput.viewDeckAndTabLeft },
+		{ "DRAW_PILE", MegaInput.viewDrawPile },
+		{ "DISCARD_PILE", MegaInput.viewDiscardPile },
+		{ "EXHAUST_PILE", MegaInput.viewExhaustPileAndTabRight },
+		{ "END_TURN", MegaInput.accept },
+		{ "UP", MegaInput.up },
+		{ "DOWN", MegaInput.down },
+		{ "LEFT", MegaInput.left },
+		{ "RIGHT", MegaInput.right },
+		{ "DROP_CARD", MegaInput.releaseCard },
+		{ "TOP_PANEL", MegaInput.topPanel },
+		{ "PEEK", MegaInput.peek },
+		{ "SELECT", MegaInput.select },
+		{ "CARD_1", MegaInput.selectCard1 },
+		{ "CARD_2", MegaInput.selectCard2 },
+		{ "CARD_3", MegaInput.selectCard3 },
+		{ "CARD_4", MegaInput.selectCard4 },
+		{ "CARD_5", MegaInput.selectCard5 },
+		{ "CARD_6", MegaInput.selectCard6 },
+		{ "CARD_7", MegaInput.selectCard7 },
+		{ "CARD_8", MegaInput.selectCard8 },
+		{ "CARD_9", MegaInput.selectCard9 },
+		{ "CARD_10", MegaInput.selectCard10 },
+	};
+
+	private static StringName? ResolveKeyName(string? keyName)
+	{
+		if (string.IsNullOrWhiteSpace(keyName))
+			return null;
+		return KeyNameMap.TryGetValue(keyName.Trim(), out var action) ? action : null;
+	}
+
+	/// <summary>Simulates a mouse click at screen coordinates. Uses 1920×1080 reference space (StS1 compatible).</summary>
+	public static bool TryExecuteClick(string button, float x, float y, out ErrorMessage? error)
+	{
+		error = null;
+		if (RunManager.Instance.DebugOnlyGetState() == null)
+		{
+			error = new ErrorMessage { error = "NoRun", details = "CLICK only available during a run." };
+			return false;
+		}
+
+		Viewport? viewport = NRun.Instance?.GetViewport() ?? NGame.Instance?.GetViewport();
+		if (viewport == null)
+		{
+			error = new ErrorMessage { error = "ViewportUnavailable", details = "Could not get viewport for CLICK." };
+			return false;
+		}
+
+		MouseButton buttonIndex;
+		if (string.Equals(button, "Left", StringComparison.OrdinalIgnoreCase))
+			buttonIndex = MouseButton.Left;
+		else if (string.Equals(button, "Right", StringComparison.OrdinalIgnoreCase))
+			buttonIndex = MouseButton.Right;
+		else
+		{
+			error = new ErrorMessage { error = "InvalidClickButton", details = "CLICK button must be Left or Right." };
+			return false;
+		}
+
+		var viewportSize = viewport.GetVisibleRect().Size;
+		const float refWidth = 1920f;
+		const float refHeight = 1080f;
+		float scaleX = viewportSize.X / refWidth;
+		float scaleY = viewportSize.Y / refHeight;
+		Vector2 pos = new Vector2(x * scaleX, y * scaleY);
+		Input.WarpMouse(pos);
+
+		var evt = new InputEventMouseButton
+		{
+			Position = pos,
+			ButtonIndex = buttonIndex
+		};
+		evt.Pressed = true;
+		Input.ParseInputEvent(evt);
+		evt.Pressed = false;
+		Input.ParseInputEvent(evt);
+		return true;
+	}
+
 	/// <summary>Start a new singleplayer run. Character: index 0-4 or id (e.g. Ironclad, Silent). Seed/ascension optional.</summary>
 	public static bool TryExecuteStart(string? characterArg, string? seedArg, int ascension, out ErrorMessage? error)
 	{
@@ -503,6 +673,162 @@ public static class CommandExecutor
 		List<ActModel> acts = ActModel.GetRandomList(seed, unlockState, isMultiplayer: false).ToList();
 
 		TaskHelper.RunSafely(NGame.Instance.StartNewSingleplayerRun(character, shouldSave: true, acts, Array.Empty<ModifierModel>(), seed, ascension));
+		return true;
+	}
+
+	/// <summary>Buy a shop card by index (0-based, matches state.shop.cards[].index). Must be called on main thread.</summary>
+	public static async Task<(bool success, ErrorMessage? error)> TryExecuteShopBuyCardAsync(int index)
+	{
+		var (entry, inv, err) = ResolveShopCardEntry(index);
+		if (err != null) return (false, err);
+		bool ok = await entry!.OnTryPurchaseWrapper(inv!);
+		return (ok, ok ? null : new ErrorMessage { error = "ShopBuyFailed", details = "Purchase did not complete (e.g. not enough gold or potion slots full)." });
+	}
+
+	/// <summary>Buy a shop relic by index. Must be called on main thread.</summary>
+	public static async Task<(bool success, ErrorMessage? error)> TryExecuteShopBuyRelicAsync(int index)
+	{
+		var (entry, inv, err) = ResolveShopRelicEntry(index);
+		if (err != null) return (false, err);
+		bool ok = await entry!.OnTryPurchaseWrapper(inv!);
+		return (ok, ok ? null : new ErrorMessage { error = "ShopBuyFailed", details = "Purchase did not complete." });
+	}
+
+	/// <summary>Buy a shop potion by index. Must be called on main thread.</summary>
+	public static async Task<(bool success, ErrorMessage? error)> TryExecuteShopBuyPotionAsync(int index)
+	{
+		var (entry, inv, err) = ResolveShopPotionEntry(index);
+		if (err != null) return (false, err);
+		bool ok = await entry!.OnTryPurchaseWrapper(inv!);
+		return (ok, ok ? null : new ErrorMessage { error = "ShopBuyFailed", details = "Purchase did not complete (e.g. potion slots full)." });
+	}
+
+	/// <summary>Use shop card removal (purge). Must be called on main thread.</summary>
+	public static async Task<(bool success, ErrorMessage? error)> TryExecuteShopPurgeAsync()
+	{
+		var (entry, inv, err) = ResolveShopPurgeEntry();
+		if (err != null) return (false, err);
+		var removalEntry = (MerchantCardRemovalEntry)entry!;
+		bool ok = await removalEntry.OnTryPurchaseWrapper(inv!, ignoreCost: false, cancelable: true);
+		return (ok, ok ? null : new ErrorMessage { error = "ShopPurgeFailed", details = "Purge did not complete." });
+	}
+
+	private static (MerchantEntry? entry, MerchantInventory? inv, ErrorMessage? error) ResolveShopCardEntry(int index)
+	{
+		var runState = RunManager.Instance.DebugOnlyGetState();
+		if (runState == null) return (null, null, new ErrorMessage { error = "NoRun", details = "Not in a run." });
+		if (runState.CurrentRoom is not MerchantRoom room || room.Inventory == null)
+			return (null, null, new ErrorMessage { error = "NotInShop", details = "Not in a shop room." });
+		var inv = room.Inventory;
+		MerchantEntry? entry = null;
+		int n = 0;
+		foreach (var e in inv.CardEntries)
+		{
+			if (!e.IsStocked) continue;
+			if (n == index) { entry = e; break; }
+			n++;
+		}
+		if (entry == null)
+			return (null, null, new ErrorMessage { error = "InvalidShopIndex", details = $"Card index {index} out of range (0..{n - 1})." });
+		if (!entry.EnoughGold)
+			return (null, null, new ErrorMessage { error = "CannotAfford", details = $"Cost {entry.Cost} exceeds gold {inv.Player.Gold}." });
+		return (entry, inv, null);
+	}
+
+	private static (MerchantEntry? entry, MerchantInventory? inv, ErrorMessage? error) ResolveShopRelicEntry(int index)
+	{
+		var runState = RunManager.Instance.DebugOnlyGetState();
+		if (runState == null) return (null, null, new ErrorMessage { error = "NoRun", details = "Not in a run." });
+		if (runState.CurrentRoom is not MerchantRoom room || room.Inventory == null)
+			return (null, null, new ErrorMessage { error = "NotInShop", details = "Not in a shop room." });
+		var inv = room.Inventory;
+		MerchantEntry? entry = null;
+		int n = 0;
+		foreach (var e in inv.RelicEntries)
+		{
+			if (!e.IsStocked) continue;
+			if (n == index) { entry = e; break; }
+			n++;
+		}
+		if (entry == null)
+			return (null, null, new ErrorMessage { error = "InvalidShopIndex", details = $"Relic index {index} out of range (0..{n - 1})." });
+		if (!entry.EnoughGold)
+			return (null, null, new ErrorMessage { error = "CannotAfford", details = $"Cost {entry.Cost} exceeds gold {inv.Player.Gold}." });
+		return (entry, inv, null);
+	}
+
+	private static (MerchantEntry? entry, MerchantInventory? inv, ErrorMessage? error) ResolveShopPotionEntry(int index)
+	{
+		var runState = RunManager.Instance.DebugOnlyGetState();
+		if (runState == null) return (null, null, new ErrorMessage { error = "NoRun", details = "Not in a run." });
+		if (runState.CurrentRoom is not MerchantRoom room || room.Inventory == null)
+			return (null, null, new ErrorMessage { error = "NotInShop", details = "Not in a shop room." });
+		var inv = room.Inventory;
+		MerchantEntry? entry = null;
+		int n = 0;
+		foreach (var e in inv.PotionEntries)
+		{
+			if (!e.IsStocked) continue;
+			if (n == index) { entry = e; break; }
+			n++;
+		}
+		if (entry == null)
+			return (null, null, new ErrorMessage { error = "InvalidShopIndex", details = $"Potion index {index} out of range (0..{n - 1})." });
+		if (!entry.EnoughGold)
+			return (null, null, new ErrorMessage { error = "CannotAfford", details = $"Cost {entry.Cost} exceeds gold {inv.Player.Gold}." });
+		return (entry, inv, null);
+	}
+
+	private static (MerchantEntry? entry, MerchantInventory? inv, ErrorMessage? error) ResolveShopPurgeEntry()
+	{
+		var runState = RunManager.Instance.DebugOnlyGetState();
+		if (runState == null) return (null, null, new ErrorMessage { error = "NoRun", details = "Not in a run." });
+		if (runState.CurrentRoom is not MerchantRoom room || room.Inventory == null)
+			return (null, null, new ErrorMessage { error = "NotInShop", details = "Not in a shop room." });
+		var inv = room.Inventory;
+		var entry = inv.CardRemovalEntry;
+		if (entry == null || !entry.IsStocked)
+			return (null, null, new ErrorMessage { error = "PurgeUnavailable", details = "Card removal is not available." });
+		if (!entry.EnoughGold)
+			return (null, null, new ErrorMessage { error = "CannotAfford", details = $"Purge cost {entry.Cost} exceeds gold {inv.Player.Gold}." });
+		return (entry, inv, null);
+	}
+
+	/// <summary>Choose a combat reward by index (0-based). Must be called when screen = "rewards". Triggers the Nth enabled reward button.</summary>
+	public static bool TryExecuteRewardChoose(int index, out ErrorMessage? error)
+	{
+		error = null;
+		if (NOverlayStack.Instance?.Peek() is not NRewardsScreen screen)
+		{
+			error = new ErrorMessage { error = "NotRewardsScreen", details = "Rewards screen is not open. REWARD_CHOOSE is only valid when screen = \"rewards\"." };
+			return false;
+		}
+		var buttons = UiHelper.FindAll<NRewardButton>(screen).Where(b => b.IsEnabled).ToList();
+		if (index < 0 || index >= buttons.Count)
+		{
+			error = new ErrorMessage { error = "InvalidRewardIndex", details = $"Reward index {index} out of range (0..{buttons.Count - 1})." };
+			return false;
+		}
+		buttons[index].ForceClick();
+		return true;
+	}
+
+	/// <summary>Choose a boss/relic reward by index (0-based). Must be called when screen = "boss_reward".</summary>
+	public static bool TryExecuteBossRewardChoose(int index, out ErrorMessage? error)
+	{
+		error = null;
+		if (NOverlayStack.Instance?.Peek() is not NChooseARelicSelection screen)
+		{
+			error = new ErrorMessage { error = "NotBossRewardScreen", details = "Boss reward (relic choice) screen is not open. BOSS_REWARD_CHOOSE is only valid when screen = \"boss_reward\"." };
+			return false;
+		}
+		var holders = UiHelper.FindAll<NRelicBasicHolder>(screen).ToList();
+		if (index < 0 || index >= holders.Count)
+		{
+			error = new ErrorMessage { error = "InvalidBossRewardIndex", details = $"Boss reward index {index} out of range (0..{holders.Count - 1})." };
+			return false;
+		}
+		holders[index].ForceClick();
 		return true;
 	}
 

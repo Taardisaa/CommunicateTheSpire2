@@ -12,7 +12,7 @@ public sealed class HelloMessage
 {
 	public string type { get; set; } = "hello";
 	public int protocol_version { get; set; } = ProtocolConstants.ProtocolVersion;
-	public string mod_version { get; set; } = "0.1.0";
+	public string mod_version { get; set; } = "1.0.0";
 	public string transport { get; set; } = "stdio";
 	public List<string> capabilities { get; set; } = new List<string>();
 }
@@ -58,8 +58,82 @@ public sealed class StateMessage
 	/// <summary>Local player's potion slots (when in run). Index matches POTION use/discard slot.</summary>
 	public List<PotionSummary> potions { get; set; } = new List<PotionSummary>();
 
+	/// <summary>Local player's relics (when in run).</summary>
+	public List<RelicSummary> relics { get; set; } = new List<RelicSummary>();
+
+	/// <summary>Local player's full deck (when in run, outside combat). Same format as draw_pile: id, upgraded.</summary>
+	public List<CardPileEntry> deck { get; set; } = new List<CardPileEntry>();
+
+	/// <summary>Shop inventory (when screen = "shop"). Cards, relics, potions with prices; purge_available, purge_cost.</summary>
+	public ShopSummary? shop { get; set; }
+
+	/// <summary>Combat reward options (when screen = "rewards"). Choose one or more by index via REWARD_CHOOSE.</summary>
+	public List<RewardOptionSummary> rewards { get; set; } = new List<RewardOptionSummary>();
+
+	/// <summary>Boss (or relic choice) reward options when screen = "boss_reward". Choose one by index via BOSS_REWARD_CHOOSE.</summary>
+	public List<BossRewardEntry> boss_reward { get; set; } = new List<BossRewardEntry>();
+
 	/// <summary>Commands currently valid for this state. E.g. ["STATE","PING","PLAY","END"].</summary>
 	public List<string> available_commands { get; set; } = new List<string>();
+}
+
+public sealed class BossRewardEntry
+{
+	public int index { get; set; }
+	public string? id { get; set; }
+}
+
+public sealed class RewardOptionSummary
+{
+	public int index { get; set; }
+	/// <summary>One of: "gold", "relic", "potion", "card".</summary>
+	public string type { get; set; } = "";
+	/// <summary>Gold amount when type = "gold".</summary>
+	public int? amount { get; set; }
+	/// <summary>Item id when type = "relic" or "potion" (if known).</summary>
+	public string? id { get; set; }
+}
+
+public sealed class ShopSummary
+{
+	public List<ShopCardEntry> cards { get; set; } = new List<ShopCardEntry>();
+	public List<ShopRelicEntry> relics { get; set; } = new List<ShopRelicEntry>();
+	public List<ShopPotionEntry> potions { get; set; } = new List<ShopPotionEntry>();
+	public bool purge_available { get; set; }
+	public int purge_cost { get; set; }
+}
+
+public sealed class ShopCardEntry
+{
+	public int index { get; set; }
+	public string? id { get; set; }
+	public bool upgraded { get; set; }
+	public int upgrade_level { get; set; }
+	public int cost { get; set; }
+	/// <summary>Localized card title (richer model).</summary>
+	public string? name { get; set; }
+	/// <summary>Card type: Attack, Skill, Power, Status, Curse, Quest.</summary>
+	public string? type { get; set; }
+	/// <summary>Rarity: Basic, Common, Uncommon, Rare, etc.</summary>
+	public string? rarity { get; set; }
+	/// <summary>True if card exhausts when played.</summary>
+	public bool exhausts { get; set; }
+	/// <summary>True if ethereal.</summary>
+	public bool ethereal { get; set; }
+}
+
+public sealed class ShopRelicEntry
+{
+	public int index { get; set; }
+	public string? id { get; set; }
+	public int cost { get; set; }
+}
+
+public sealed class ShopPotionEntry
+{
+	public int index { get; set; }
+	public string? id { get; set; }
+	public int cost { get; set; }
 }
 
 public sealed class PotionSummary
@@ -67,6 +141,14 @@ public sealed class PotionSummary
 	public int index { get; set; }
 	public string? id { get; set; }
 	public string? target_type { get; set; }
+}
+
+public sealed class RelicSummary
+{
+	public string? id { get; set; }
+	public string? name { get; set; }
+	/// <summary>Display counter; -1 when relic has no counter.</summary>
+	public int counter { get; set; } = -1;
 }
 
 public sealed class RunSummary
@@ -94,13 +176,30 @@ public sealed class CombatSummary
 	public List<CardPileEntry> discard_pile { get; set; } = new List<CardPileEntry>();
 	/// <summary>Exhaust pile.</summary>
 	public List<CardPileEntry> exhaust_pile { get; set; } = new List<CardPileEntry>();
+	/// <summary>Limbo (StS2 Play pile): cards being played, not yet in discard/exhaust.</summary>
+	public List<CardPileEntry> limbo { get; set; } = new List<CardPileEntry>();
+	/// <summary>Card currently being played (whose effects are executing). Null when no card play is in progress.</summary>
+	public CardPileEntry? card_in_play { get; set; }
 }
 
-/// <summary>Card entry in draw/discard/exhaust pile (no playability, just id and upgrade).</summary>
+/// <summary>Card entry in draw/discard/exhaust/deck pile (no playability, just id and upgrade).</summary>
 public sealed class CardPileEntry
 {
 	public string? id { get; set; }
+	/// <summary>True when upgrade_level > 0. Kept for backward compatibility.</summary>
 	public bool upgraded { get; set; }
+	/// <summary>Current upgrade level (0 = unupgraded, 1+ = upgraded; StS2 supports multiple upgrades).</summary>
+	public int upgrade_level { get; set; }
+	/// <summary>Localized card title (richer model).</summary>
+	public string? name { get; set; }
+	/// <summary>Card type: Attack, Skill, Power, Status, Curse, Quest.</summary>
+	public string? type { get; set; }
+	/// <summary>Rarity: Basic, Common, Uncommon, Rare, etc.</summary>
+	public string? rarity { get; set; }
+	/// <summary>True if card exhausts when played.</summary>
+	public bool exhausts { get; set; }
+	/// <summary>True if ethereal (exhausts if not played end of turn).</summary>
+	public bool ethereal { get; set; }
 }
 
 public sealed class HandCardSummary
@@ -110,6 +209,28 @@ public sealed class HandCardSummary
 	public int energy_cost { get; set; }
 	public string? target_type { get; set; }
 	public bool playable { get; set; }
+	/// <summary>True when upgrade_level > 0.</summary>
+	public bool upgraded { get; set; }
+	/// <summary>Current upgrade level (0 = unupgraded, 1+ = upgraded).</summary>
+	public int upgrade_level { get; set; }
+	/// <summary>Localized card title (richer model).</summary>
+	public string? name { get; set; }
+	/// <summary>Card type: Attack, Skill, Power, Status, Curse, Quest.</summary>
+	public string? type { get; set; }
+	/// <summary>Rarity: Basic, Common, Uncommon, Rare, etc.</summary>
+	public string? rarity { get; set; }
+	/// <summary>True if card exhausts when played.</summary>
+	public bool exhausts { get; set; }
+	/// <summary>True if ethereal (exhausts if not played end of turn).</summary>
+	public bool ethereal { get; set; }
+}
+
+public sealed class OrbSummary
+{
+	public string? id { get; set; }
+	public string? name { get; set; }
+	public int evoke_amount { get; set; }
+	public int passive_amount { get; set; }
 }
 
 public sealed class PlayerSummary
@@ -120,6 +241,18 @@ public sealed class PlayerSummary
 	public int block { get; set; }
 	public int energy { get; set; }
 	public int stars { get; set; }
+	public List<PowerSummary> powers { get; set; } = new List<PowerSummary>();
+	/// <summary>Number of cards the local player discarded this turn. For Tactician etc.</summary>
+	public int cards_discarded_this_turn { get; set; }
+	/// <summary>Orb slots (StS2 OrbQueue). Empty if character has no orbs.</summary>
+	public List<OrbSummary> orbs { get; set; } = new List<OrbSummary>();
+}
+
+public sealed class PowerSummary
+{
+	public string? id { get; set; }
+	public string? name { get; set; }
+	public int amount { get; set; }
 }
 
 public sealed class EnemySummary
@@ -138,6 +271,7 @@ public sealed class EnemySummary
 	public int damage { get; set; }
 	/// <summary>Number of hits for multi-attacks; 1 for single, 0 if not attacking.</summary>
 	public int hits { get; set; }
+	public List<PowerSummary> powers { get; set; } = new List<PowerSummary>();
 }
 
 public sealed class EventOptionSummary

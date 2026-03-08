@@ -10,10 +10,15 @@ using CommunicateTheSpire2.Stability;
 using CommunicateTheSpire2.Config;
 using CommunicateTheSpire2.Ipc;
 using CommunicateTheSpire2.Protocol;
+using Godot;
 using HarmonyLib;
+using MegaCrit.Sts2.Core.AutoSlay.Helpers;
 using MegaCrit.Sts2.Core.Commands;
 using MegaCrit.Sts2.Core.Logging;
 using MegaCrit.Sts2.Core.Modding;
+using MegaCrit.Sts2.Core.Nodes.Cards.Holders;
+using MegaCrit.Sts2.Core.Nodes.Screens.CardSelection;
+using MegaCrit.Sts2.Core.Nodes.Screens.Overlays;
 
 namespace CommunicateTheSpire2;
 
@@ -113,11 +118,18 @@ public static class ModEntry
 					CommunicateTheSpireLog.Write("[controller stdout] " + line);
 				}
 
-				// After handshake, treat controller stdout lines as protocol commands.
-				if (_protocolActive)
-				{
-					HandleControllerLine(line);
-				}
+				if (!_protocolActive)
+					return;
+
+				// CHOOSE_RESPONSE must run immediately on this (background) thread. The game blocks the main
+				// thread in GetResult() waiting for the choice; if we defer, main thread never runs the
+				// deferred callback → deadlock. TryHandleResponse only touches TCS; no Godot access.
+				if (IpcChoiceBridge.TryHandleResponse(line))
+					return;
+
+				// All other commands need main thread: BuildState() and commands access Godot scene tree.
+				string captured = line;
+				Callable.From(() => HandleControllerLine(captured)).CallDeferred();
 			};
 			host.StderrLine += line =>
 			{
@@ -176,6 +188,18 @@ public static class ModEntry
 				HandleHostStopped(host, true, "startup exception");
 			}
 		});
+	}
+
+	/// <summary>Reload config from file and restart controller if enabled. Call after in-game config save.</summary>
+	public static void ApplyConfigFromFile()
+	{
+		var cfg = CommunicateTheSpire2Config.LoadOrCreateDefault();
+		_config = cfg;
+		_restartAttempts = 0;
+		StopController();
+		_shutdownRequested = false; // Reset so we can start again (Save = intentional restart, not app shutdown)
+		if (cfg.Enabled && cfg.IsSpawnMode && !string.IsNullOrWhiteSpace(cfg.Command))
+			StartControllerAsync(cfg, false);
 	}
 
 	private static void StopController()
@@ -280,6 +304,9 @@ public static class ModEntry
 			}
 
 			string cmd = command.ToUpperInvariant();
+			string logArgs = string.IsNullOrWhiteSpace(args) ? "" : " " + args.Trim();
+			CommunicateTheSpireLog.Write($"[CMD] {cmd}{logArgs}");
+
 			switch (cmd)
 			{
 				case "STATE":
@@ -396,6 +423,118 @@ public static class ModEntry
 							SendJson(error);
 						break;
 					}
+				case "RETURN":
+					{
+						if (CommandExecutor.TryExecuteReturn(out error))
+							SendJson(new { type = "return_queued", ok = true });
+						else if (error != null)
+							SendJson(error);
+						break;
+					}
+				case "KEY":
+					{
+						string keyName = (args ?? "").Trim().ToUpperInvariant();
+						if (string.IsNullOrEmpty(keyName))
+						{
+							SendJson(new ErrorMessage { error = "InvalidKey", details = "KEY requires a key name, e.g. KEY CONFIRM or KEY MAP." });
+							break;
+						}
+						if (CommandExecutor.TryExecuteKey(keyName, out error))
+							SendJson(new { type = "key_queued", ok = true, key = keyName });
+						else if (error != null)
+							SendJson(error);
+						break;
+					}
+				case "CLICK":
+					{
+						if (!TryParseClickArgs(args ?? "", out string? clickButton, out float clickX, out float clickY, out error))
+						{
+							if (error != null)
+								SendJson(error);
+							break;
+						}
+						if (CommandExecutor.TryExecuteClick(clickButton!, clickX, clickY, out error))
+							SendJson(new { type = "click_queued", ok = true, button = clickButton, x = clickX, y = clickY });
+						else if (error != null)
+							SendJson(error);
+						break;
+					}
+				case "WAIT":
+					{
+						if (!TryParseWaitArgs(args ?? "", out int waitFrames, out error))
+						{
+							if (error != null)
+								SendJson(error);
+							break;
+						}
+						ScheduleStateAfterWait(waitFrames);
+						SendJson(new { type = "wait_queued", ok = true, frames = waitFrames });
+						break;
+					}
+				case "SHOP_BUY_CARD":
+					{
+						if (!TryParseShopBuyIndex(args ?? "", out int cardIndex, out error))
+						{
+							if (error != null)
+								SendJson(error);
+							break;
+						}
+						DeferShopBuyCard(cardIndex);
+						break;
+					}
+				case "SHOP_BUY_RELIC":
+					{
+						if (!TryParseShopBuyIndex(args ?? "", out int relicIndex, out error))
+						{
+							if (error != null)
+								SendJson(error);
+							break;
+						}
+						DeferShopBuyRelic(relicIndex);
+						break;
+					}
+				case "SHOP_BUY_POTION":
+					{
+						if (!TryParseShopBuyIndex(args ?? "", out int potionIndex, out error))
+						{
+							if (error != null)
+								SendJson(error);
+							break;
+						}
+						DeferShopBuyPotion(potionIndex);
+						break;
+					}
+				case "SHOP_PURGE":
+					DeferShopPurge();
+					break;
+				case "REWARD_CHOOSE":
+					{
+						if (!TryParseRewardChooseArgs(args ?? "", out int rewardIndex, out error))
+						{
+							if (error != null)
+								SendJson(error);
+							break;
+						}
+						if (CommandExecutor.TryExecuteRewardChoose(rewardIndex, out error))
+							SendJson(new { type = "reward_choose_queued", ok = true, index = rewardIndex });
+						else if (error != null)
+							SendJson(error);
+						break;
+					}
+				case "BOSS_REWARD_CHOOSE":
+					{
+						if (!TryParseBossRewardChooseArgs(args ?? "", out int bossRewardIndex, out error))
+						{
+							if (error != null)
+								SendJson(error);
+							break;
+						}
+						if (CommandExecutor.TryExecuteBossRewardChoose(bossRewardIndex, out error))
+							SendJson(new { type = "boss_reward_choose_queued", ok = true, index = bossRewardIndex });
+						else if (error != null)
+							SendJson(error);
+						break;
+					}
 				case "START":
 					{
 						TryParseStartArgs(args ?? "", out string? charArg, out string? seedArg, out int ascension);
@@ -409,7 +548,7 @@ public static class ModEntry
 					SendJson(new ErrorMessage
 					{
 						error = "UnknownCommand",
-						details = $"Command '{command}' is not supported. Supported: STATE, PING, END, PLAY, EVENT_CHOOSE, REST_CHOOSE, MAP_CHOOSE, POTION, PROCEED, START. For choice screens, respond with CHOOSE_RESPONSE <choice_id> <index> or skip."
+						details = $"Command '{command}' is not supported. Supported: STATE, PING, END, PLAY, EVENT_CHOOSE, REST_CHOOSE, MAP_CHOOSE, POTION, PROCEED, RETURN, KEY, CLICK, WAIT, START, REWARD_CHOOSE, BOSS_REWARD_CHOOSE, SHOP_BUY_CARD, SHOP_BUY_RELIC, SHOP_BUY_POTION, SHOP_PURGE. For choice screens, respond with CHOOSE_RESPONSE <choice_id> <index> or skip."
 					});
 					break;
 			}
@@ -467,6 +606,201 @@ public static class ModEntry
 				return false;
 			}
 			targetIndex = t;
+		}
+		return true;
+	}
+
+	private static bool TryParseWaitArgs(string args, out int frames, out ErrorMessage? error)
+	{
+		frames = 0;
+		error = null;
+		string[] parts = string.IsNullOrWhiteSpace(args) ? Array.Empty<string>() : args.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+		if (parts.Length == 0)
+		{
+			error = new ErrorMessage { error = "InvalidWaitArgs", details = "WAIT requires frame count. Usage: WAIT <frames> (e.g. WAIT 60 for ~1 sec at 60fps)." };
+			return false;
+		}
+		if (!int.TryParse(parts[0], out frames) || frames < 0)
+		{
+			error = new ErrorMessage { error = "InvalidWaitArgs", details = "WAIT frames must be a non-negative integer." };
+			return false;
+		}
+		return true;
+	}
+
+	private static void ScheduleStateAfterWait(int frames)
+	{
+		// ~60fps: N frames ≈ N * 17ms
+		int delayMs = Math.Max(0, frames * 17);
+		_ = Task.Run(async () =>
+		{
+			try
+			{
+				await Task.Delay(delayMs);
+				PublishStateIfActive();
+			}
+			catch (Exception ex)
+			{
+				CommunicateTheSpireLog.Write("WAIT schedule failed: " + ex);
+			}
+		});
+	}
+
+	private static bool TryParseRewardChooseArgs(string args, out int index, out ErrorMessage? error)
+	{
+		index = 0;
+		error = null;
+		string[] parts = string.IsNullOrWhiteSpace(args) ? Array.Empty<string>() : args.Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+		if (parts.Length == 0)
+		{
+			error = new ErrorMessage { error = "InvalidRewardChooseArgs", details = "REWARD_CHOOSE requires an index. Usage: REWARD_CHOOSE <index> (index from state.rewards[].index)." };
+			return false;
+		}
+		if (!int.TryParse(parts[0], out index) || index < 0)
+		{
+			error = new ErrorMessage { error = "InvalidRewardChooseArgs", details = "Reward index must be a non-negative integer." };
+			return false;
+		}
+		return true;
+	}
+
+	private static bool TryParseBossRewardChooseArgs(string args, out int index, out ErrorMessage? error)
+	{
+		index = 0;
+		error = null;
+		string[] parts = string.IsNullOrWhiteSpace(args) ? Array.Empty<string>() : args.Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+		if (parts.Length == 0)
+		{
+			error = new ErrorMessage { error = "InvalidBossRewardChooseArgs", details = "BOSS_REWARD_CHOOSE requires an index. Usage: BOSS_REWARD_CHOOSE <index> (index from state.boss_reward[].index)." };
+			return false;
+		}
+		if (!int.TryParse(parts[0], out index) || index < 0)
+		{
+			error = new ErrorMessage { error = "InvalidBossRewardChooseArgs", details = "Boss reward index must be a non-negative integer." };
+			return false;
+		}
+		return true;
+	}
+
+	private static bool TryParseShopBuyIndex(string args, out int index, out ErrorMessage? error)
+	{
+		index = 0;
+		error = null;
+		string[] parts = string.IsNullOrWhiteSpace(args) ? Array.Empty<string>() : args.Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+		if (parts.Length == 0)
+		{
+			error = new ErrorMessage { error = "InvalidShopBuyArgs", details = "SHOP_BUY_CARD/RELIC/POTION require an index. Usage: SHOP_BUY_CARD <index> (index from state.shop.cards[].index)." };
+			return false;
+		}
+		if (!int.TryParse(parts[0], out index) || index < 0)
+		{
+			error = new ErrorMessage { error = "InvalidShopBuyArgs", details = "Shop buy index must be a non-negative integer." };
+			return false;
+		}
+		return true;
+	}
+
+	private static void DeferShopBuyCard(int index)
+	{
+		Callable.From(() => RunShopBuyCardAsync(index)).CallDeferred();
+	}
+
+	private static void DeferShopBuyRelic(int index)
+	{
+		Callable.From(() => RunShopBuyRelicAsync(index)).CallDeferred();
+	}
+
+	private static void DeferShopBuyPotion(int index)
+	{
+		Callable.From(() => RunShopBuyPotionAsync(index)).CallDeferred();
+	}
+
+	private static void DeferShopPurge()
+	{
+		Callable.From(RunShopPurgeAsync).CallDeferred();
+	}
+
+	private static async void RunShopBuyCardAsync(int index)
+	{
+		try
+		{
+			var (success, err) = await CommandExecutor.TryExecuteShopBuyCardAsync(index);
+			if (err != null)
+				SendJson(err);
+			else
+				SendJson(new { type = "shop_buy_ok", item_type = "card", index });
+		}
+		catch (Exception ex)
+		{
+			SendJson(new ErrorMessage { error = "ShopBuyError", details = ex.Message });
+		}
+	}
+
+	private static async void RunShopBuyRelicAsync(int index)
+	{
+		try
+		{
+			var (success, err) = await CommandExecutor.TryExecuteShopBuyRelicAsync(index);
+			if (err != null)
+				SendJson(err);
+			else
+				SendJson(new { type = "shop_buy_ok", item_type = "relic", index });
+		}
+		catch (Exception ex)
+		{
+			SendJson(new ErrorMessage { error = "ShopBuyError", details = ex.Message });
+		}
+	}
+
+	private static async void RunShopBuyPotionAsync(int index)
+	{
+		try
+		{
+			var (success, err) = await CommandExecutor.TryExecuteShopBuyPotionAsync(index);
+			if (err != null)
+				SendJson(err);
+			else
+				SendJson(new { type = "shop_buy_ok", item_type = "potion", index });
+		}
+		catch (Exception ex)
+		{
+			SendJson(new ErrorMessage { error = "ShopBuyError", details = ex.Message });
+		}
+	}
+
+	private static async void RunShopPurgeAsync()
+	{
+		try
+		{
+			var (success, err) = await CommandExecutor.TryExecuteShopPurgeAsync();
+			if (err != null)
+				SendJson(err);
+			else
+				SendJson(new { type = "shop_buy_ok", item_type = "purge" });
+		}
+		catch (Exception ex)
+		{
+			SendJson(new ErrorMessage { error = "ShopBuyError", details = ex.Message });
+		}
+	}
+
+	private static bool TryParseClickArgs(string args, out string? button, out float x, out float y, out ErrorMessage? error)
+	{
+		button = null;
+		x = 0;
+		y = 0;
+		error = null;
+		string[] parts = string.IsNullOrWhiteSpace(args) ? Array.Empty<string>() : args.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+		if (parts.Length < 3)
+		{
+			error = new ErrorMessage { error = "InvalidClickArgs", details = "CLICK requires Left|Right X Y. Usage: CLICK Left 960 540 (1920×1080 reference)." };
+			return false;
+		}
+		button = parts[0];
+		if (!float.TryParse(parts[1], out x) || !float.TryParse(parts[2], out y))
+		{
+			error = new ErrorMessage { error = "InvalidClickArgs", details = "CLICK X and Y must be numbers. Usage: CLICK Left 960 540." };
+			return false;
 		}
 		return true;
 	}
@@ -540,13 +874,23 @@ public static class ModEntry
 
 	private static void LogStateChecksumIfVerbose(StateMessage state)
 	{
-		if (_config?.VerboseProtocolLogs != true)
-			return;
 		try
 		{
-			string json = ProtocolJson.Serialize(state);
-			string checksum = ComputeShortHash(json);
-			CommunicateTheSpireLog.Write($"[STATE_CHECKSUM] {checksum}");
+			string screen = state.screen ?? "null";
+			bool inCombat = state.in_combat;
+			int availCount = state.available_commands?.Count ?? 0;
+			var cmds = state.available_commands ?? new System.Collections.Generic.List<string>();
+			string availPreview = availCount <= 5
+				? string.Join(",", cmds)
+				: $"{availCount} cmds";
+			string summary = $"[STATE] screen={screen} in_combat={inCombat} available=[{availPreview}]";
+			if (_config?.VerboseProtocolLogs == true)
+			{
+				string json = ProtocolJson.Serialize(state);
+				string checksum = ComputeShortHash(json);
+				summary += $" hash={checksum}";
+			}
+			CommunicateTheSpireLog.Write(summary);
 		}
 		catch
 		{
@@ -564,6 +908,27 @@ public static class ModEntry
 	private static void SendJson(object message)
 	{
 		SendJsonToController(message);
+	}
+
+	/// <summary>Defer card reward click simulation to main thread (called from choice callback).</summary>
+	internal static void DeferSimulateCardRewardClick(int[] indices, bool skip)
+	{
+		Callable.From(() => SimulateCardRewardClick(indices, skip)).CallDeferred();
+	}
+
+	private static void SimulateCardRewardClick(int[] indices, bool skip)
+	{
+		if (NOverlayStack.Instance?.Peek() is not NCardRewardSelectionScreen screen)
+			return;
+		var holders = UiHelper.FindAll<NCardHolder>(screen);
+		if (holders.Count == 0)
+			return;
+		if (skip || indices == null || indices.Length == 0)
+			return;
+		int idx = indices[0];
+		if (idx < 0 || idx >= holders.Count)
+			return;
+		holders[idx].EmitSignal(NCardHolder.SignalName.Pressed, holders[idx]);
 	}
 
 	/// <summary>Called by IpcChoiceBridge to send choice_request. Same assembly, no circular dep.</summary>

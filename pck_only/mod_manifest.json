@@ -3,6 +3,6 @@
   "name": "Communicate The Spire 2",
   "author": "StS2",
   "description": "StS2 IPC mod: exposes game state and accepts controller commands (stdio transport).",
-  "version": "0.1.0"
+  "version": "1.0.0"
 }
 
