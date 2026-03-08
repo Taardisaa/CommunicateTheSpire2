@@ -154,6 +154,10 @@ Copy-Item "CommunicateTheSpire2\bin\Release\CommunicateTheSpire2.dll" $mods
   - `Init() entered — ModManager called our initializer.`（已进入 Init() — ModManager 调用了我们的初始化器。）
   - `Harmony postfix ran after ModManager.Initialize — hooking works.`（ModManager.Initialize 之后 Harmony 后置补丁已运行 — 钩子工作正常。）
 
+## 许可证
+
+本项目采用 MIT License，详见 [LICENSE](LICENSE)。
+
 <!-- 若 **DemoMod.log** 从未出现，请参阅 **docs/mod-troubleshooting.md**（例如 mods 文件夹位置、是否同意加载模组，或是否只有 DLL 而没有 PCK）。 -->
 
 <!-- ---

@@ -200,6 +200,10 @@ The mod writes a log file so you can confirm it ran without using the console.
   - `Init() entered — ModManager called our initializer.`
   - `Harmony postfix ran after ModManager.Initialize — hooking works.`
 
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE).
+
 <!-- If **CtS2.log** never appears, see **docs/mod-troubleshooting.md** (e.g. mods folder location, agreeing to load mods, or only having the DLL without the PCK). -->
 
 <!-- ---
