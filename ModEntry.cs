@@ -544,11 +544,19 @@ public static class ModEntry
 							SendJson(error);
 						break;
 					}
+				case "CONTINUE":
+					{
+						if (CommandExecutor.TryExecuteContinue(out error))
+							SendJson(new { type = "continue_queued", ok = true });
+						else if (error != null)
+							SendJson(error);
+						break;
+					}
 				default:
 					SendJson(new ErrorMessage
 					{
 						error = "UnknownCommand",
-						details = $"Command '{command}' is not supported. Supported: STATE, PING, END, PLAY, EVENT_CHOOSE, REST_CHOOSE, MAP_CHOOSE, POTION, PROCEED, RETURN, KEY, CLICK, WAIT, START, REWARD_CHOOSE, BOSS_REWARD_CHOOSE, SHOP_BUY_CARD, SHOP_BUY_RELIC, SHOP_BUY_POTION, SHOP_PURGE. For choice screens, respond with CHOOSE_RESPONSE <choice_id> <index> or skip."
+						details = $"Command '{command}' is not supported. Supported: STATE, PING, END, PLAY, EVENT_CHOOSE, REST_CHOOSE, MAP_CHOOSE, POTION, PROCEED, RETURN, KEY, CLICK, WAIT, START, CONTINUE, REWARD_CHOOSE, BOSS_REWARD_CHOOSE, SHOP_BUY_CARD, SHOP_BUY_RELIC, SHOP_BUY_POTION, SHOP_PURGE. For choice screens, respond with CHOOSE_RESPONSE <choice_id> <index> or skip."
 					});
 					break;
 			}
@@ -877,13 +885,14 @@ public static class ModEntry
 		try
 		{
 			string screen = state.screen ?? "null";
+			bool inRun = state.in_run;
 			bool inCombat = state.in_combat;
 			int availCount = state.available_commands?.Count ?? 0;
 			var cmds = state.available_commands ?? new System.Collections.Generic.List<string>();
 			string availPreview = availCount <= 5
 				? string.Join(",", cmds)
 				: $"{availCount} cmds";
-			string summary = $"[STATE] screen={screen} in_combat={inCombat} available=[{availPreview}]";
+			string summary = $"[STATE] in_run={inRun} screen={screen} in_combat={inCombat} available=[{availPreview}]";
 			if (_config?.VerboseProtocolLogs == true)
 			{
 				string json = ProtocolJson.Serialize(state);
@@ -954,4 +963,3 @@ public static class ModEntry
 		}
 	}
 }
-

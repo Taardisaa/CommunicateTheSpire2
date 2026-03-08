@@ -21,6 +21,7 @@ public static class IpcChoiceBridge
 	private static TaskCompletionSource<ChoiceResult>? _pendingTcs;
 	private static ManualResetEventSlim? _syncWait;
 	private static ChoiceResult? _syncResult;
+	private static ChoiceRequestMessage? _pendingRequest;
 	private static string? _simulationChoiceId;
 	private static Action<int[], bool>? _simulationCallback;
 	private static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(60);
@@ -48,6 +49,15 @@ public static class IpcChoiceBridge
 		Action<int[], bool> onResponse)
 	{
 		string choiceId = Guid.NewGuid().ToString("N")[..12];
+		var msg = new ChoiceRequestMessage
+		{
+			choice_id = choiceId,
+			choice_type = choiceType,
+			min_select = minSelect,
+			max_select = maxSelect,
+			options = options.ToList(),
+			alternatives = (alternatives ?? Array.Empty<string>()).ToList()
+		};
 		lock (_lock)
 		{
 			if (_pendingTcs != null)
@@ -61,19 +71,10 @@ public static class IpcChoiceBridge
 			_pendingTcs = null;
 			_syncWait = null;
 			_syncResult = null;
+			_pendingRequest = CloneChoiceRequest(msg);
 			_simulationChoiceId = choiceId;
 			_simulationCallback = onResponse;
 		}
-
-		var msg = new ChoiceRequestMessage
-		{
-			choice_id = choiceId,
-			choice_type = choiceType,
-			min_select = minSelect,
-			max_select = maxSelect,
-			options = options.ToList(),
-			alternatives = (alternatives ?? Array.Empty<string>()).ToList()
-		};
 
 		CommunicateTheSpireLog.Write($"[CHOICE] {choiceType} id={choiceId} #options={options.Count} min={minSelect} max={maxSelect} (simulation)");
 		global::CommunicateTheSpire2.ModEntry.SendJsonToController(msg);
@@ -91,6 +92,15 @@ public static class IpcChoiceBridge
 		string choiceId = Guid.NewGuid().ToString("N")[..12];
 		using var evt = new ManualResetEventSlim(false);
 		ChoiceResult? result = null;
+		var msg = new ChoiceRequestMessage
+		{
+			choice_id = choiceId,
+			choice_type = choiceType,
+			min_select = minSelect,
+			max_select = maxSelect,
+			options = options.ToList(),
+			alternatives = (alternatives ?? Array.Empty<string>()).ToList()
+		};
 
 		lock (_lock)
 		{
@@ -105,17 +115,8 @@ public static class IpcChoiceBridge
 			_pendingTcs = null;
 			_syncWait = evt;
 			_syncResult = null;
+			_pendingRequest = CloneChoiceRequest(msg);
 		}
-
-		var msg = new ChoiceRequestMessage
-		{
-			choice_id = choiceId,
-			choice_type = choiceType,
-			min_select = minSelect,
-			max_select = maxSelect,
-			options = options.ToList(),
-			alternatives = (alternatives ?? Array.Empty<string>()).ToList()
-		};
 
 		CommunicateTheSpireLog.Write($"[CHOICE] {choiceType} id={choiceId} #options={options.Count} min={minSelect} max={maxSelect}");
 		global::CommunicateTheSpire2.ModEntry.SendJsonToController(msg);
@@ -144,17 +145,6 @@ public static class IpcChoiceBridge
 	{
 		string choiceId = Guid.NewGuid().ToString("N")[..12];
 		var tcs = new TaskCompletionSource<ChoiceResult>(TaskCreationOptions.RunContinuationsAsynchronously);
-
-		lock (_lock)
-		{
-			if (_pendingTcs != null)
-			{
-				_pendingTcs.TrySetResult(new ChoiceResult { Skip = true });
-			}
-			_pendingChoiceId = choiceId;
-			_pendingTcs = tcs;
-		}
-
 		var msg = new ChoiceRequestMessage
 		{
 			choice_id = choiceId,
@@ -164,6 +154,17 @@ public static class IpcChoiceBridge
 			options = options.ToList(),
 			alternatives = (alternatives ?? Array.Empty<string>()).ToList()
 		};
+
+		lock (_lock)
+		{
+			if (_pendingTcs != null)
+			{
+				_pendingTcs.TrySetResult(new ChoiceResult { Skip = true });
+			}
+			_pendingChoiceId = choiceId;
+			_pendingTcs = tcs;
+			_pendingRequest = CloneChoiceRequest(msg);
+		}
 
 		CommunicateTheSpireLog.Write($"[CHOICE] {choiceType} id={choiceId} #options={options.Count} min={minSelect} max={maxSelect}");
 		global::CommunicateTheSpire2.ModEntry.SendJsonToController(msg);
@@ -191,8 +192,19 @@ public static class IpcChoiceBridge
 				{
 					_pendingChoiceId = null;
 					_pendingTcs = null;
+					_pendingRequest = null;
 				}
 			}
+		}
+	}
+
+	public static ChoiceRequestMessage? GetPendingRequestSnapshot()
+	{
+		lock (_lock)
+		{
+			if (_pendingChoiceId == null || _pendingRequest == null)
+				return null;
+			return CloneChoiceRequest(_pendingRequest);
 		}
 	}
 
@@ -289,6 +301,7 @@ public static class IpcChoiceBridge
 			_pendingTcs = null;
 			_syncWait = null;
 			_syncResult = r;
+			_pendingRequest = null;
 		}
 		tcs?.TrySetResult(new ChoiceResult { Indices = indices, Skip = skip });
 		evt?.Set();
@@ -300,5 +313,21 @@ public static class IpcChoiceBridge
 		{
 			CommunicateTheSpireLog.Write("Choice simulation callback error: " + ex);
 		}
+	}
+
+	private static ChoiceRequestMessage CloneChoiceRequest(ChoiceRequestMessage source)
+	{
+		return new ChoiceRequestMessage
+		{
+			type = source.type,
+			choice_id = source.choice_id,
+			choice_type = source.choice_type,
+			min_select = source.min_select,
+			max_select = source.max_select,
+			options = source.options
+				.Select(o => new ChoiceOptionSummary { index = o.index, id = o.id, name = o.name })
+				.ToList(),
+			alternatives = source.alternatives.ToList()
+		};
 	}
 }

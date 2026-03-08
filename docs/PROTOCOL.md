@@ -333,6 +333,7 @@ After a valid command is accepted, the mod may send an acknowledgment. These ind
 | `boss_reward_choose_queued` | `ok: true`, `index: int` | After `BOSS_REWARD_CHOOSE` |
 | `shop_buy_ok` | `item_type`: `"card"` \| `"relic"` \| `"potion"` \| `"purge"`, `index`? (for card/relic/potion) | After `SHOP_BUY_*` when purchase succeeds |
 | `start_queued` | `ok: true`, `character`, `seed?`, `ascension?` | After `START` |
+| `continue_queued` | `ok: true` | After `CONTINUE` |
 
 ### error
 
@@ -394,6 +395,7 @@ COMMAND [arg1] [arg2] ...
 | `SHOP_BUY_POTION` | `<index>` | Shop, `state.shop.potions` non-empty | Buy the potion at the given index. Pure API. |
 | `SHOP_PURGE` | — | Shop, `state.shop.purge_available` true | Use card removal (purge). Opens card selection; respond with `CHOOSE_RESPONSE` to pick which card to remove. Pure API. |
 | `START` | `[character] [seed] [ascension]` | Not in run | Start new run. Character: index 0–4 or id (Ironclad, Silent, Regent, Necrobinder, Defect). |
+| `CONTINUE` | — | Not in run, saved run exists | Continue the current saved run (same path as main-menu Continue). |
 
 ### Choice response (not a command)
 
@@ -448,7 +450,7 @@ Mod: {"type":"choice_request","choice_id":"abc123","choice_type":"card_reward","
 Controller: CHOOSE_RESPONSE abc123 0
 ```
 
-### Event / Map / START
+### Event / Map / START / CONTINUE
 
 ```
 Mod: {"type":"state","screen":"event","event_options":[...],...}
@@ -459,6 +461,9 @@ Controller: MAP_CHOOSE 1
 
 Mod: {"type":"state","in_run":false,...}
 Controller: START Ironclad
+
+Mod: {"type":"state","in_run":false,"available_commands":["STATE","PING","START","CONTINUE"],...}
+Controller: CONTINUE
 ```
 
 ### KEY (keypress simulation)

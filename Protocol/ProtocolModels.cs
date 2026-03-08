@@ -73,6 +73,9 @@ public sealed class StateMessage
 	/// <summary>Boss (or relic choice) reward options when screen = "boss_reward". Choose one by index via BOSS_REWARD_CHOOSE.</summary>
 	public List<BossRewardEntry> boss_reward { get; set; } = new List<BossRewardEntry>();
 
+	/// <summary>Pending choice request when the game is waiting for CHOOSE_RESPONSE (e.g. card reward pick).</summary>
+	public PendingChoiceSummary? pending_choice { get; set; }
+
 	/// <summary>Commands currently valid for this state. E.g. ["STATE","PING","PLAY","END"].</summary>
 	public List<string> available_commands { get; set; } = new List<string>();
 }
@@ -88,6 +91,10 @@ public sealed class RewardOptionSummary
 	public int index { get; set; }
 	/// <summary>One of: "gold", "relic", "potion", "card".</summary>
 	public string type { get; set; } = "";
+	/// <summary>Whether this reward option is currently enabled/clickable.</summary>
+	public bool enabled { get; set; } = true;
+	/// <summary>Display name when known (e.g. card title).</summary>
+	public string? name { get; set; }
 	/// <summary>Gold amount when type = "gold".</summary>
 	public int? amount { get; set; }
 	/// <summary>Item id when type = "relic" or "potion" (if known).</summary>
@@ -302,5 +309,22 @@ public sealed class MapSummary
 {
 	public MapCoordSummary? current_coord { get; set; }
 	public List<MapCoordSummary> reachable { get; set; } = new List<MapCoordSummary>();
+}
+
+public sealed class PendingChoiceSummary
+{
+	public string choice_id { get; set; } = "";
+	public string choice_type { get; set; } = "";
+	public int min_select { get; set; }
+	public int max_select { get; set; }
+	public List<PendingChoiceOptionSummary> options { get; set; } = new List<PendingChoiceOptionSummary>();
+	public List<string> alternatives { get; set; } = new List<string>();
+}
+
+public sealed class PendingChoiceOptionSummary
+{
+	public int index { get; set; }
+	public string? id { get; set; }
+	public string? name { get; set; }
 }
 

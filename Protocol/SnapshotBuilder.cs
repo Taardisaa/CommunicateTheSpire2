@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using CommunicateTheSpire2.Choice;
 using CommunicateTheSpire2.Protocol;
 using MegaCrit.Sts2.Core.Combat;
 using MegaCrit.Sts2.Core.Combat.History.Entries;
@@ -17,7 +18,9 @@ using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Nodes.Rooms;
 using MegaCrit.Sts2.Core.Nodes.Relics;
 using MegaCrit.Sts2.Core.Nodes.Rewards;
+using MegaCrit.Sts2.Core.Nodes.Cards.Holders;
 using MegaCrit.Sts2.Core.Nodes.Screens;
+using MegaCrit.Sts2.Core.Nodes.Screens.CardSelection;
 using MegaCrit.Sts2.Core.Nodes.Screens.Map;
 using MegaCrit.Sts2.Core.Nodes.Screens.Overlays;
 using MegaCrit.Sts2.Core.Nodes.Screens.Shops;
@@ -29,6 +32,7 @@ using MegaCrit.Sts2.Core.GameActions;
 using MegaCrit.Sts2.Core.MonsterMoves.Intents;
 using MegaCrit.Sts2.Core.MonsterMoves.MonsterMoveStateMachine;
 using MegaCrit.Sts2.Core.Rooms;
+using MegaCrit.Sts2.Core.Saves;
 
 namespace CommunicateTheSpire2.Protocol;
 
@@ -156,6 +160,7 @@ public static class SnapshotBuilder
 			msg.combat = combat;
 		}
 
+		PopulatePendingChoice(msg);
 		PopulateAvailableCommands(msg);
 		return msg;
 	}
@@ -303,13 +308,15 @@ public static class SnapshotBuilder
 	{
 		msg.available_commands.Add("STATE");
 		msg.available_commands.Add("PING");
+		if (msg.pending_choice != null)
+			msg.available_commands.Add("CHOOSE_RESPONSE");
 
 		if (msg.in_combat && msg.combat != null)
 		{
 			if (msg.combat.current_side == "Player")
 			{
 				msg.available_commands.Add("END");
-				if (msg.combat.hand_cards.Count > 0)
+				if (msg.combat.hand_cards.Any(c => c.playable))
 					msg.available_commands.Add("PLAY");
 				if (msg.potions.Count > 0)
 					msg.available_commands.Add("POTION");
@@ -333,6 +340,15 @@ public static class SnapshotBuilder
 		if (msg.in_run && !msg.in_combat && msg.screen is "event" or "rest_site" or "treasure" or "shop")
 			msg.available_commands.Add("PROCEED");
 
+		// Rewards flow: after all reward picks are resolved, allow PROCEED to leave room.
+		// While rewards are still selectable (or a pending choice exists), require REWARD_CHOOSE/CHOOSE_RESPONSE first.
+		if (msg.in_run && !msg.in_combat && msg.screen == "rewards")
+		{
+			bool hasEnabledRewards = msg.rewards.Any(r => r.enabled);
+			if (!hasEnabledRewards && msg.pending_choice == null)
+				msg.available_commands.Add("PROCEED");
+		}
+
 		// Shop buy (pure API, no CLICK): buy by index from state.shop
 		if (msg.shop != null)
 		{
@@ -350,11 +366,8 @@ public static class SnapshotBuilder
 		// Add when screen=rewards OR overlay is NRewardsScreen. Use type name fallback in case of assembly mismatch.
 		// TryExecuteRewardChoose finds buttons via UiHelper directly, so indices 0..N-1 work.
 		{
-			var peek = NOverlayStack.Instance?.Peek();
-			bool isRewards = msg.screen == "rewards"
-				|| peek is NRewardsScreen
-				|| (peek != null && peek.GetType().Name == "NRewardsScreen");
-			if (isRewards)
+			bool isRewards = msg.screen == "rewards" || TryGetRewardsScreen() != null;
+			if (isRewards && msg.rewards.Any(r => r.enabled))
 				msg.available_commands.Add("REWARD_CHOOSE");
 		}
 
@@ -371,21 +384,78 @@ public static class SnapshotBuilder
 				msg.available_commands.Add("RETURN");
 		}
 
+		// During run bootstrap/fade transitions, RunState may exist while CurrentRoom is still null.
+		// In that transitional state (screen == null), hide gameplay input commands to avoid misleading UI.
+		bool hasActiveScreen = !string.IsNullOrWhiteSpace(msg.screen);
+
 		// KEY: simulate keypress (Confirm, Map, Deck, etc.)
-		if (msg.in_run)
+		if (msg.in_run && hasActiveScreen)
 			msg.available_commands.Add("KEY");
 
 		// CLICK: simulate mouse click at screen coordinates (1920×1080 reference)
-		if (msg.in_run)
+		if (msg.in_run && hasActiveScreen)
 			msg.available_commands.Add("CLICK");
 
 		// WAIT: wait N frames, then send state (useful after KEY/CLICK with animations)
-		if (msg.in_run)
+		if (msg.in_run && hasActiveScreen)
 			msg.available_commands.Add("WAIT");
 
 		// START: begin new run from main menu (when not in run)
 		if (!msg.in_run)
 			msg.available_commands.Add("START");
+
+		// CONTINUE: load existing save from main menu when a valid run save exists.
+		if (!msg.in_run && HasContinueRunSave())
+			msg.available_commands.Add("CONTINUE");
+	}
+
+	private static bool HasContinueRunSave()
+	{
+		try
+		{
+			var save = SaveManager.Instance.LoadRunSave();
+			return save.Success && save.SaveData != null;
+		}
+		catch
+		{
+			return false;
+		}
+	}
+
+	private static void PopulatePendingChoice(StateMessage msg)
+	{
+		ChoiceRequestMessage? pending = IpcChoiceBridge.GetPendingRequestSnapshot();
+		if (pending == null)
+			return;
+
+		var summary = new PendingChoiceSummary
+		{
+			choice_id = pending.choice_id,
+			choice_type = pending.choice_type,
+			min_select = pending.min_select,
+			max_select = pending.max_select,
+			alternatives = pending.alternatives?.ToList() ?? new List<string>()
+		};
+		foreach (var option in pending.options)
+		{
+			summary.options.Add(new PendingChoiceOptionSummary
+			{
+				index = option.index,
+				id = option.id,
+				name = option.name
+			});
+		}
+
+		msg.pending_choice = summary;
+		bool isCardRewardChoice = string.Equals(summary.choice_type, "card_reward", StringComparison.OrdinalIgnoreCase);
+		if (!isCardRewardChoice)
+		{
+			// Choice overlay supersedes reward selection UI for controller decisions.
+			msg.rewards.Clear();
+			msg.boss_reward.Clear();
+			// For non-reward choices, this is the primary actionable screen from controller perspective.
+			msg.screen = "choice";
+		}
 	}
 
 	private static Player? SafeGetLocalPlayer(CombatState combatState)
@@ -408,12 +478,21 @@ public static class SnapshotBuilder
 		if (CombatManager.Instance.IsInProgress)
 			return "combat";
 
+		// Map overlay can be open while still conceptually in a non-map room (e.g. after rewards).
+		// When open, treat map as the active screen for controller decisions.
+		if (NMapScreen.Instance?.IsOpen ?? false)
+			return "map";
+
+		// Card reward picker (3 cards + skip) sits on top of rewards flow.
+		if (TryGetCardRewardSelectionScreen() != null)
+			return "rewards";
+
 		// Rewards overlay (post-combat) takes precedence over room
-		if (NOverlayStack.Instance?.Peek() is NRewardsScreen)
+		if (TryGetRewardsScreen() != null)
 			return "rewards";
 
 		// Boss / relic choice overlay (choose one relic)
-		if (NOverlayStack.Instance?.Peek() is NChooseARelicSelection)
+		if (TryGetBossRewardScreen() != null)
 			return "boss_reward";
 
 		AbstractRoom? room = runState.CurrentRoom;
@@ -427,24 +506,45 @@ public static class SnapshotBuilder
 			RoomType.Map => "map",
 			RoomType.Shop => "shop",
 			RoomType.Treasure => "treasure",
-			RoomType.Monster or RoomType.Elite or RoomType.Boss => "combat",
+			// Out-of-combat in a combat room is a transitional state (victory/death/reward handoff), not active combat UI.
+			RoomType.Monster or RoomType.Elite or RoomType.Boss => null,
 			_ => "unknown"
 		};
 	}
 
 	private static void PopulateRewards(StateMessage msg)
 	{
-		if (NOverlayStack.Instance?.Peek() is not NRewardsScreen screen)
+		// If card reward picker is open, expose each visible card as a REWARD_CHOOSE option.
+		NCardRewardSelectionScreen? cardScreen = TryGetCardRewardSelectionScreen();
+		if (cardScreen != null)
+		{
+			var holders = UiHelper.FindAll<NCardHolder>(cardScreen).ToList();
+			for (int i = 0; i < holders.Count; i++)
+			{
+				var card = holders[i].CardModel;
+				msg.rewards.Add(new RewardOptionSummary
+				{
+					index = i,
+					type = "card",
+					enabled = true,
+					id = card?.Id?.Entry,
+					name = card?.Title
+				});
+			}
 			return;
-		var buttons = UiHelper.FindAll<NRewardButton>(screen)
-			.Where(b => b.IsEnabled)
-			.ToList();
+		}
+
+		NRewardsScreen? screen = TryGetRewardsScreen();
+		if (screen == null)
+			return;
+		var buttons = UiHelper.FindAll<NRewardButton>(screen).ToList();
 		for (int i = 0; i < buttons.Count; i++)
 		{
-			var reward = buttons[i].Reward;
+			var button = buttons[i];
+			var reward = button.Reward;
 			if (reward == null)
 				continue;
-			var entry = new RewardOptionSummary { index = i };
+			var entry = new RewardOptionSummary { index = i, enabled = button.IsEnabled };
 			switch (reward)
 			{
 				case GoldReward gold:
@@ -475,7 +575,8 @@ public static class SnapshotBuilder
 
 	private static void PopulateBossReward(StateMessage msg)
 	{
-		if (NOverlayStack.Instance?.Peek() is not NChooseARelicSelection screen)
+		NChooseARelicSelection? screen = TryGetBossRewardScreen();
+		if (screen == null)
 			return;
 		var holders = UiHelper.FindAll<NRelicBasicHolder>(screen).ToList();
 		for (int i = 0; i < holders.Count; i++)
@@ -485,6 +586,42 @@ public static class SnapshotBuilder
 				continue;
 			msg.boss_reward.Add(new BossRewardEntry { index = i, id = model.Id.Entry });
 		}
+	}
+
+	private static NCardRewardSelectionScreen? TryGetCardRewardSelectionScreen()
+	{
+		var overlays = NOverlayStack.Instance;
+		if (overlays == null)
+			return null;
+
+		if (overlays.Peek() is NCardRewardSelectionScreen top)
+			return top;
+
+		return UiHelper.FindAll<NCardRewardSelectionScreen>(overlays).LastOrDefault();
+	}
+
+	private static NRewardsScreen? TryGetRewardsScreen()
+	{
+		var overlays = NOverlayStack.Instance;
+		if (overlays == null)
+			return null;
+
+		if (overlays.Peek() is NRewardsScreen top)
+			return top;
+
+		return UiHelper.FindAll<NRewardsScreen>(overlays).LastOrDefault();
+	}
+
+	private static NChooseARelicSelection? TryGetBossRewardScreen()
+	{
+		var overlays = NOverlayStack.Instance;
+		if (overlays == null)
+			return null;
+
+		if (overlays.Peek() is NChooseARelicSelection top)
+			return top;
+
+		return UiHelper.FindAll<NChooseARelicSelection>(overlays).LastOrDefault();
 	}
 
 	private static void PopulateEventOptions(StateMessage msg, RunState runState)
@@ -536,20 +673,23 @@ public static class SnapshotBuilder
 
 	private static void PopulateMapState(StateMessage msg, RunState runState)
 	{
-		if (runState.CurrentRoom is not MapRoom)
+		bool mapOpen = NMapScreen.Instance?.IsOpen ?? false;
+		if (!mapOpen && runState.CurrentRoom is not MapRoom)
 			return;
 
 		var coord = runState.CurrentMapCoord;
 		var point = runState.CurrentMapPoint;
-		if (!coord.HasValue || point == null)
+		if (point == null)
 			return;
+		int currentCol = coord?.col ?? point.coord.col;
+		int currentRow = coord?.row ?? point.coord.row;
 
 		msg.map = new MapSummary
 		{
 			current_coord = new MapCoordSummary
 			{
-				col = coord.Value.col,
-				row = coord.Value.row,
+				col = currentCol,
+				row = currentRow,
 				point_type = point.PointType.ToString()
 			},
 			reachable = new List<MapCoordSummary>()

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Godot;
+using CommunicateTheSpire2.Choice;
 using CommunicateTheSpire2.Protocol;
 using MegaCrit.Sts2.Core.Combat;
 using MegaCrit.Sts2.Core.Context;
@@ -10,11 +11,13 @@ using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Creatures;
 using MegaCrit.Sts2.Core.Entities.Merchant;
 using MegaCrit.Sts2.Core.Entities.Players;
+using MegaCrit.Sts2.Core.Commands;
 using MegaCrit.Sts2.Core.GameActions;
 using MegaCrit.Sts2.Core.GameActions.Multiplayer;
 using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Map;
 using MegaCrit.Sts2.Core.Models;
+using MegaCrit.Sts2.Core.Multiplayer;
 using MegaCrit.Sts2.Core.Multiplayer.Game;
 using MegaCrit.Sts2.Core.Runs;
 using MegaCrit.Sts2.Core.Rooms;
@@ -24,10 +27,13 @@ using MegaCrit.Sts2.Core.ControllerInput;
 using MegaCrit.Sts2.Core.Nodes;
 using MegaCrit.Sts2.Core.AutoSlay.Helpers;
 using MegaCrit.Sts2.Core.Nodes.CommonUi;
+using MegaCrit.Sts2.Core.Nodes.Audio;
 using MegaCrit.Sts2.Core.Nodes.Rooms;
 using MegaCrit.Sts2.Core.Nodes.Relics;
 using MegaCrit.Sts2.Core.Nodes.Rewards;
+using MegaCrit.Sts2.Core.Nodes.Cards.Holders;
 using MegaCrit.Sts2.Core.Nodes.Screens;
+using MegaCrit.Sts2.Core.Nodes.Screens.CardSelection;
 using MegaCrit.Sts2.Core.Nodes.Screens.Map;
 using MegaCrit.Sts2.Core.Nodes.Screens.Overlays;
 using MegaCrit.Sts2.Core.Nodes.Screens.Shops;
@@ -145,10 +151,6 @@ public static class CommandExecutor
 				}
 			}
 		}
-		else if (card.TargetType == TargetType.Self)
-		{
-			target = me.Creature;
-		}
 
 		if (!card.CanPlay(out _, out _))
 		{
@@ -158,7 +160,11 @@ public static class CommandExecutor
 
 		if (!card.IsValidTarget(target))
 		{
-			error = new ErrorMessage { error = "InvalidTarget", details = "Target is not valid for this card." };
+			error = new ErrorMessage
+			{
+				error = "InvalidTarget",
+				details = $"Target is not valid for this card (card target_type={card.TargetType}, provided_target={(target == null ? "null" : target.CombatId?.ToString() ?? "no_combat_id")})."
+			};
 			return false;
 		}
 
@@ -242,7 +248,8 @@ public static class CommandExecutor
 			error = new ErrorMessage { error = "NoRun", details = "Not in a run." };
 			return false;
 		}
-		if (runState.CurrentRoom is not MapRoom)
+		bool mapOpen = NMapScreen.Instance?.IsOpen ?? false;
+		if (!mapOpen && runState.CurrentRoom is not MapRoom)
 		{
 			error = new ErrorMessage { error = "NotMapRoom", details = "Not on map screen. MAP_CHOOSE is only valid when screen=map." };
 			return false;
@@ -433,10 +440,42 @@ public static class CommandExecutor
 			return false;
 		}
 
+		// Post-combat rewards: leave room after rewards are resolved.
+		// If card reward picker is still open, caller must choose/skip that first.
+		if (TryGetCardRewardSelectionScreen() != null)
+		{
+			error = new ErrorMessage
+			{
+				error = "RewardChoicePending",
+				details = "Card reward choice is still open. Use REWARD_CHOOSE <index> (or CHOOSE_RESPONSE) first."
+			};
+			return false;
+		}
+		NRewardsScreen? rewardsScreen = TryGetRewardsScreen();
+		if (rewardsScreen != null)
+		{
+			bool hasEnabledRewards = UiHelper.FindAll<NRewardButton>(rewardsScreen).Any(b => b.IsEnabled);
+			if (hasEnabledRewards)
+			{
+				error = new ErrorMessage
+				{
+					error = "RewardsRemaining",
+					details = "Rewards are still available. Choose/claim rewards first via REWARD_CHOOSE."
+				};
+				return false;
+			}
+			TaskHelper.RunSafely(RunManager.Instance.ProceedFromTerminalRewardsScreen());
+			return true;
+		}
+
 		AbstractRoom? room = runState.CurrentRoom;
 		if (room == null)
 		{
-			error = new ErrorMessage { error = "NoRoom", details = "No current room." };
+			error = new ErrorMessage
+			{
+				error = "NoRoom",
+				details = "No current room. The run may still be loading/transitioning; wait briefly and request STATE again."
+			};
 			return false;
 		}
 
@@ -478,7 +517,7 @@ public static class CommandExecutor
 				error = new ErrorMessage
 				{
 					error = "ProceedNotAvailable",
-					details = $"PROCEED not available for room type {room.RoomType}. Use for event, rest_site, treasure, or shop."
+					details = $"PROCEED not available for room type {room.RoomType}. Use for event, rest_site, treasure, shop, or resolved rewards screen."
 				};
 				return false;
 		}
@@ -666,14 +705,112 @@ public static class CommandExecutor
 			return false;
 		}
 
-		string seed = string.IsNullOrWhiteSpace(seedArg) ? Guid.NewGuid().ToString("N")[..16] : seedArg.Trim();
-		ascension = Math.Clamp(ascension, 0, 20);
+		// Match game lobby behavior: random seed when omitted, canonicalized user seed otherwise.
+		string seed = string.IsNullOrWhiteSpace(seedArg) ? SeedHelper.GetRandomSeed() : SeedHelper.CanonicalizeSeed(seedArg.Trim());
+		if (string.IsNullOrWhiteSpace(seed))
+		{
+			error = new ErrorMessage { error = "InvalidSeed", details = "Seed is empty after normalization." };
+			return false;
+		}
 
-		UnlockState unlockState = SaveManager.Instance.GenerateUnlockStateFromProgress();
-		List<ActModel> acts = ActModel.GetRandomList(seed, unlockState, isMultiplayer: false).ToList();
+		// Match character-select behavior: ascension cannot exceed this character's unlocked max.
+		int unlockedMaxAscension = SaveManager.Instance.Progress.GetOrCreateCharacterStats(character.Id).MaxAscension;
+		ascension = Math.Clamp(ascension, 0, unlockedMaxAscension);
 
-		TaskHelper.RunSafely(NGame.Instance.StartNewSingleplayerRun(character, shouldSave: true, acts, Array.Empty<ModifierModel>(), seed, ascension));
+		List<ActModel> acts;
+		try
+		{
+			UnlockState unlockState = SaveManager.Instance.GenerateUnlockStateFromProgress();
+			acts = ActModel.GetRandomList(seed, unlockState, isMultiplayer: false).ToList();
+		}
+		catch (Exception ex)
+		{
+			error = new ErrorMessage { error = "StartFailed", details = "Failed to generate act list: " + ex.Message };
+			return false;
+		}
+
+		TaskHelper.RunSafely(StartSingleplayerRunFlow(character, acts, seed, ascension));
 		return true;
+	}
+
+	/// <summary>Continue the current saved singleplayer run (same path as main-menu Continue).</summary>
+	public static bool TryExecuteContinue(out ErrorMessage? error)
+	{
+		error = null;
+		if (RunManager.Instance.DebugOnlyGetState() != null)
+		{
+			error = new ErrorMessage { error = "AlreadyInRun", details = "A run is already in progress." };
+			return false;
+		}
+
+		if (NGame.Instance == null)
+		{
+			error = new ErrorMessage { error = "GameUnavailable", details = "Game instance not available." };
+			return false;
+		}
+
+		var readRunSaveResult = SaveManager.Instance.LoadRunSave();
+		if (!readRunSaveResult.Success || readRunSaveResult.SaveData == null)
+		{
+			error = new ErrorMessage
+			{
+				error = "NoContinueSave",
+				details = $"Continue run save not available (status={readRunSaveResult.Status}{(string.IsNullOrWhiteSpace(readRunSaveResult.ErrorMessage) ? "" : $", error={readRunSaveResult.ErrorMessage}")})."
+			};
+			return false;
+		}
+
+		SerializableRun serializableRun = readRunSaveResult.SaveData;
+		RunState runState;
+		try
+		{
+			runState = RunState.FromSerializable(serializableRun);
+			if (runState.Players.Count == 0)
+			{
+				error = new ErrorMessage { error = "ContinueLoadFailed", details = "Save has no players." };
+				return false;
+			}
+		}
+		catch (Exception ex)
+		{
+			error = new ErrorMessage { error = "ContinueLoadFailed", details = "Failed to deserialize run save: " + ex.Message };
+			return false;
+		}
+
+		try
+		{
+			RunManager.Instance.SetUpSavedSinglePlayer(runState, serializableRun);
+		}
+		catch (Exception ex)
+		{
+			error = new ErrorMessage { error = "ContinueLoadFailed", details = "Failed to prepare run state: " + ex.Message };
+			return false;
+		}
+
+		TaskHelper.RunSafely(ContinueSingleplayerRunFlow(runState, serializableRun));
+		return true;
+	}
+
+	private static async Task StartSingleplayerRunFlow(CharacterModel character, IReadOnlyList<ActModel> acts, string seed, int ascension)
+	{
+		NAudioManager.Instance?.StopMusic();
+		if (NGame.Instance?.Transition != null)
+			await NGame.Instance.Transition.FadeOut(0.8f, character.CharacterSelectTransitionPath);
+		await NGame.Instance!.StartNewSingleplayerRun(character, shouldSave: true, acts, Array.Empty<ModifierModel>(), seed, ascension);
+	}
+
+	private static async Task ContinueSingleplayerRunFlow(RunState runState, SerializableRun serializableRun)
+	{
+		NAudioManager.Instance?.StopMusic();
+		var character = runState.Players[0].Character;
+		SfxCmd.Play(character.CharacterTransitionSfx);
+		if (NGame.Instance?.Transition != null)
+			await NGame.Instance.Transition.FadeOut(0.8f, character.CharacterSelectTransitionPath);
+
+		NGame.Instance!.ReactionContainer.InitializeNetworking(new NetSingleplayerGameService());
+		await NGame.Instance.LoadRun(runState, serializableRun.PreFinishedRoom);
+		if (NGame.Instance.Transition != null)
+			await NGame.Instance.Transition.FadeIn();
 	}
 
 	/// <summary>Buy a shop card by index (0-based, matches state.shop.cards[].index). Must be called on main thread.</summary>
@@ -798,18 +935,62 @@ public static class CommandExecutor
 	public static bool TryExecuteRewardChoose(int index, out ErrorMessage? error)
 	{
 		error = null;
-		if (NOverlayStack.Instance?.Peek() is not NRewardsScreen screen)
+		NCardRewardSelectionScreen? cardScreen = TryGetCardRewardSelectionScreen();
+		if (cardScreen != null)
+		{
+			ChoiceRequestMessage? pending = IpcChoiceBridge.GetPendingRequestSnapshot();
+			if (pending != null && string.Equals(pending.choice_type, "card_reward", StringComparison.OrdinalIgnoreCase))
+			{
+				if (index < 0 || index >= pending.options.Count)
+				{
+					error = new ErrorMessage
+					{
+						error = "InvalidRewardIndex",
+						details = $"Reward index {index} out of range (0..{pending.options.Count - 1})."
+					};
+					return false;
+				}
+				IpcChoiceBridge.TryHandleResponse($"CHOOSE_RESPONSE {pending.choice_id} {index}");
+				return true;
+			}
+
+			var holders = UiHelper.FindAll<NCardHolder>(cardScreen).ToList();
+			if (index < 0 || index >= holders.Count)
+			{
+				error = new ErrorMessage
+				{
+					error = "InvalidRewardIndex",
+					details = $"Reward index {index} out of range (0..{holders.Count - 1})."
+				};
+				return false;
+			}
+			holders[index].EmitSignal(NCardHolder.SignalName.Pressed, holders[index]);
+			return true;
+		}
+
+		NRewardsScreen? screen = TryGetRewardsScreen();
+		if (screen == null)
 		{
 			error = new ErrorMessage { error = "NotRewardsScreen", details = "Rewards screen is not open. REWARD_CHOOSE is only valid when screen = \"rewards\"." };
 			return false;
 		}
-		var buttons = UiHelper.FindAll<NRewardButton>(screen).Where(b => b.IsEnabled).ToList();
+		var buttons = UiHelper.FindAll<NRewardButton>(screen).ToList();
 		if (index < 0 || index >= buttons.Count)
 		{
 			error = new ErrorMessage { error = "InvalidRewardIndex", details = $"Reward index {index} out of range (0..{buttons.Count - 1})." };
 			return false;
 		}
-		buttons[index].ForceClick();
+		var button = buttons[index];
+		if (!button.IsEnabled)
+		{
+			error = new ErrorMessage
+			{
+				error = "RewardNotEnabled",
+				details = $"Reward index {index} is currently not enabled/clickable."
+			};
+			return false;
+		}
+		button.ForceClick();
 		return true;
 	}
 
@@ -817,7 +998,8 @@ public static class CommandExecutor
 	public static bool TryExecuteBossRewardChoose(int index, out ErrorMessage? error)
 	{
 		error = null;
-		if (NOverlayStack.Instance?.Peek() is not NChooseARelicSelection screen)
+		NChooseARelicSelection? screen = TryGetBossRewardScreen();
+		if (screen == null)
 		{
 			error = new ErrorMessage { error = "NotBossRewardScreen", details = "Boss reward (relic choice) screen is not open. BOSS_REWARD_CHOOSE is only valid when screen = \"boss_reward\"." };
 			return false;
@@ -830,6 +1012,42 @@ public static class CommandExecutor
 		}
 		holders[index].ForceClick();
 		return true;
+	}
+
+	private static NRewardsScreen? TryGetRewardsScreen()
+	{
+		var overlays = NOverlayStack.Instance;
+		if (overlays == null)
+			return null;
+
+		if (overlays.Peek() is NRewardsScreen top)
+			return top;
+
+		return UiHelper.FindAll<NRewardsScreen>(overlays).LastOrDefault();
+	}
+
+	private static NCardRewardSelectionScreen? TryGetCardRewardSelectionScreen()
+	{
+		var overlays = NOverlayStack.Instance;
+		if (overlays == null)
+			return null;
+
+		if (overlays.Peek() is NCardRewardSelectionScreen top)
+			return top;
+
+		return UiHelper.FindAll<NCardRewardSelectionScreen>(overlays).LastOrDefault();
+	}
+
+	private static NChooseARelicSelection? TryGetBossRewardScreen()
+	{
+		var overlays = NOverlayStack.Instance;
+		if (overlays == null)
+			return null;
+
+		if (overlays.Peek() is NChooseARelicSelection top)
+			return top;
+
+		return UiHelper.FindAll<NChooseARelicSelection>(overlays).LastOrDefault();
 	}
 
 	private static CharacterModel? ResolveCharacter(string? arg, out string? errorDetail)
