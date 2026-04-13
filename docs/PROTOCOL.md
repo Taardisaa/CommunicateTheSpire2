@@ -64,7 +64,7 @@ state
 ├── potions: array        ← local player potions (when in run)
 ├── relics: array         ← local player relics (when in run)
 ├── deck: array           ← full deck (when in run, outside combat); each has id, upgraded, upgrade_level
-├── shop: object | null   ← present when screen = "shop" (cards, relics, potions, purge_available, purge_cost)
+├── shop: object | null   ← present when merchant inventory is open (cards, relics, potions, purge_available, purge_cost)
 ├── rewards: array        ← combat reward options when screen = "rewards" (index, type, amount?, id?)
 ├── boss_reward: array    ← boss/relic choice options when screen = "boss_reward" (index, id)
 └── available_commands: array ← commands valid right now
@@ -74,7 +74,7 @@ state
 
 | `screen`   | Meaning        | Relevant state fields                         |
 |------------|----------------|-----------------------------------------------|
-| `null`     | Main menu      | —                                             |
+| `null`     | Main menu or in-run transition (e.g. death/result handoff) | —                         |
 | `"combat"` | In combat      | `combat` (hand_cards, enemies, local_player)  |
 | `"event"`  | Event room     | `event_options`                               |
 | `"rest_site"` | Rest site   | `rest_site_options`                           |
@@ -102,7 +102,7 @@ state
 | `potions` | array | Local player potion slots; when `in_run` |
 | `relics` | array | Local player relics; when `in_run` |
 | `deck` | array | Full deck (id, upgraded, upgrade_level per card); when `in_run` and not `in_combat` |
-| `shop` | object \| null | Shop inventory; present when `screen` = `"shop"` |
+| `shop` | object \| null | Shop inventory; present when merchant inventory is open |
 | `rewards` | array | Combat reward options; present when `screen` = `"rewards"`. Each has `index`, `type` ("gold" \| "relic" \| "potion" \| "card"), optional `amount` (gold), optional `id` (relic/potion). |
 | `boss_reward` | array | Boss/relic choice options; present when `screen` = `"boss_reward"`. Each has `index`, `id` (relic id). |
 | `available_commands` | array | Commands valid in this state (see §6) |
@@ -151,7 +151,7 @@ state
 
 Full deck; each entry has `id`, `upgraded`, `upgrade_level` (same format as draw_pile); optional richer fields as in draw_pile. Present when in run and not in combat.
 
-### 4.8 shop (when screen = "shop")
+### 4.8 shop (when merchant inventory is open)
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -329,6 +329,7 @@ After a valid command is accepted, the mod may send an acknowledgment. These ind
 | `potion_use_queued` | `ok: true`, `slot`, `target?` | After `POTION use` |
 | `potion_discard_queued` | `ok: true`, `slot` | After `POTION discard` |
 | `proceed_queued` | `ok: true` | After `PROCEED` |
+| `return_to_menu_queued` | `ok: true` | After `RETURN_TO_MENU` |
 | `reward_choose_queued` | `ok: true`, `index: int` | After `REWARD_CHOOSE` |
 | `boss_reward_choose_queued` | `ok: true`, `index: int` | After `BOSS_REWARD_CHOOSE` |
 | `shop_buy_ok` | `item_type`: `"card"` \| `"relic"` \| `"potion"` \| `"purge"`, `index`? (for card/relic/potion) | After `SHOP_BUY_*` when purchase succeeds |
@@ -385,6 +386,7 @@ COMMAND [arg1] [arg2] ...
 | `POTION` | `discard <slot>` | Out of combat, has potions | Discard potion at slot |
 | `PROCEED` | — | Event, rest_site, treasure, shop (not in combat) | Leave current room, open map |
 | `RETURN` | — | Map overlay open, or shop inventory open | Close map overlay or close shop inventory (back/cancel button) |
+| `RETURN_TO_MENU` | — | In run, out of combat, `screen` is `null` transition | Confirm post-run/death transition to return toward main menu |
 | `KEY` | `<keyname>` | In run | Simulate keypress. Keys: CONFIRM, CANCEL, MAP, DECK, DRAW_PILE, DISCARD_PILE, EXHAUST_PILE, END_TURN, UP, DOWN, LEFT, RIGHT, DROP_CARD, CARD_1..CARD_10, TOP_PANEL, PEEK, SELECT |
 | `CLICK` | `Left|Right X Y` | In run | Simulate mouse click at screen coordinates. Reference: 1920×1080 (0,0 top-left; 960,540 center). |
 | `WAIT` | `<frames>` | In run | Wait for the specified number of frames (~17ms per frame at 60fps), then send state. Useful after KEY/CLICK to let animations settle. |
@@ -466,7 +468,7 @@ Mod: {"type":"state","in_run":false,"available_commands":["STATE","PING","START"
 Controller: CONTINUE
 ```
 
-### KEY (keypress simulation)
+### KEY / RETURN_TO_MENU (keypress-style flow)
 
 ```
 Controller: KEY MAP
@@ -474,6 +476,9 @@ Mod: {"type":"key_queued","ok":true,"key":"MAP"}
 
 Controller: KEY CARD_1
 Mod: {"type":"key_queued","ok":true,"key":"CARD_1"}
+
+Controller: RETURN_TO_MENU
+Mod: {"type":"return_to_menu_queued","ok":true}
 ```
 
 ### CLICK (mouse click at coordinates)

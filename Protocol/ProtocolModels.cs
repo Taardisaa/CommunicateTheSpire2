@@ -45,7 +45,7 @@ public sealed class StateMessage
 	public bool in_run { get; set; }
 	public bool in_combat { get; set; }
 
-	/// <summary>Current screen: "combat" | "event" | "rest_site" | "map" | "shop" | "treasure" | "unknown" | null (main menu).</summary>
+	/// <summary>Current screen: "combat" | "event" | "rest_site" | "map" | "shop" | "treasure" | "unknown" | null (main menu or in-run transition).</summary>
 	public string? screen { get; set; }
 
 	public RunSummary? run { get; set; }
@@ -64,7 +64,7 @@ public sealed class StateMessage
 	/// <summary>Local player's full deck (when in run, outside combat). Same format as draw_pile: id, upgraded.</summary>
 	public List<CardPileEntry> deck { get; set; } = new List<CardPileEntry>();
 
-	/// <summary>Shop inventory (when screen = "shop"). Cards, relics, potions with prices; purge_available, purge_cost.</summary>
+	/// <summary>Shop inventory when merchant inventory is open. Cards, relics, potions with prices; purge_available, purge_cost.</summary>
 	public ShopSummary? shop { get; set; }
 
 	/// <summary>Combat reward options (when screen = "rewards"). Choose one or more by index via REWARD_CHOOSE.</summary>

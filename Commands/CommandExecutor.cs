@@ -235,8 +235,16 @@ public static class CommandExecutor
 			return false;
 		}
 
-		TaskHelper.RunSafely(RunManager.Instance.RestSiteSynchronizer.ChooseLocalOption(index));
-		return true;
+		try
+		{
+			RunManager.Instance.RestSiteSynchronizer.ChooseLocalOption(index);
+			return true;
+		}
+		catch (Exception ex)
+		{
+			error = new ErrorMessage { error = "RestChooseFailed", details = ex.Message };
+			return false;
+		}
 	}
 
 	public static bool TryExecuteMapChoose(int index, out ErrorMessage? error)
@@ -566,6 +574,25 @@ public static class CommandExecutor
 			details = "RETURN not available. Use when map overlay is open or shop inventory is open."
 		};
 		return false;
+	}
+
+	/// <summary>Confirms post-run/game-over transitions to return toward main menu.</summary>
+	public static bool TryExecuteReturnToMenu(out ErrorMessage? error)
+	{
+		error = null;
+		if (RunManager.Instance.DebugOnlyGetState() == null)
+		{
+			error = new ErrorMessage { error = "NoRun", details = "RETURN_TO_MENU is only available while a run transition is active." };
+			return false;
+		}
+
+		if (CombatManager.Instance.IsInProgress)
+		{
+			error = new ErrorMessage { error = "InCombat", details = "Cannot return to menu during combat." };
+			return false;
+		}
+
+		return TryExecuteKey("CONFIRM", out error);
 	}
 
 	/// <summary>Simulates a keypress via Godot Input.ParseInputEvent. Key names match StS1 KEY command.</summary>

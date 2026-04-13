@@ -379,7 +379,7 @@ public static class SnapshotBuilder
 		if (msg.in_run && !msg.in_combat)
 		{
 			bool mapOpen = NMapScreen.Instance?.IsOpen ?? false;
-			bool shopInventoryOpen = msg.screen == "shop" && (NMerchantRoom.Instance?.Inventory?.IsOpen ?? false);
+			bool shopInventoryOpen = NMerchantRoom.Instance?.Inventory?.IsOpen ?? false;
 			if (mapOpen || shopInventoryOpen)
 				msg.available_commands.Add("RETURN");
 		}
@@ -387,9 +387,15 @@ public static class SnapshotBuilder
 		// During run bootstrap/fade transitions, RunState may exist while CurrentRoom is still null.
 		// In that transitional state (screen == null), hide gameplay input commands to avoid misleading UI.
 		bool hasActiveScreen = !string.IsNullOrWhiteSpace(msg.screen);
+		bool allowFallbackInput = msg.in_run && !msg.in_combat && !hasActiveScreen;
+
+		// Some post-combat/death transitions report no active screen while still in run.
+		// Expose an explicit command path to confirm and return toward main menu.
+		if (allowFallbackInput)
+			msg.available_commands.Add("RETURN_TO_MENU");
 
 		// KEY: simulate keypress (Confirm, Map, Deck, etc.)
-		if (msg.in_run && hasActiveScreen)
+		if (msg.in_run && (hasActiveScreen || allowFallbackInput))
 			msg.available_commands.Add("KEY");
 
 		// CLICK: simulate mouse click at screen coordinates (1920×1080 reference)
@@ -397,7 +403,7 @@ public static class SnapshotBuilder
 			msg.available_commands.Add("CLICK");
 
 		// WAIT: wait N frames, then send state (useful after KEY/CLICK with animations)
-		if (msg.in_run && hasActiveScreen)
+		if (msg.in_run && (hasActiveScreen || allowFallbackInput))
 			msg.available_commands.Add("WAIT");
 
 		// START: begin new run from main menu (when not in run)
@@ -477,6 +483,11 @@ public static class SnapshotBuilder
 	{
 		if (CombatManager.Instance.IsInProgress)
 			return "combat";
+
+		// Merchant inventory can coexist with overlays; keep semantic room screen stable
+		// so controllers can reliably render shop UI and use shop commands.
+		if (NMerchantRoom.Instance?.Inventory?.IsOpen ?? false)
+			return "shop";
 
 		// Map overlay can be open while still conceptually in a non-map room (e.g. after rewards).
 		// When open, treat map as the active screen for controller decisions.

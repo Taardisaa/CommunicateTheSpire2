@@ -11,7 +11,7 @@ Slay the Spire 2 mod for external process control over stdio (inspired by StS1 C
 - **Transport**: spawns a configurable controller process, stdio line-based protocol, `ready` handshake
 - **Stability detector**: auto-sends state when game is stable (combat play phase, after actions resolve)
 - **State**: JSON snapshots via `STATE` (run, combat, player HP/energy, hand cards, enemies, `available_commands`)
-- **Commands**: `STATE`, `PING`, `END`, `PLAY`, `EVENT_CHOOSE`, `REST_CHOOSE`, `MAP_CHOOSE`
+- **Commands**: `STATE`, `PING`, `END`, `PLAY`, `EVENT_CHOOSE`, `REST_CHOOSE`, `MAP_CHOOSE`, `PROCEED`, `RETURN`, `RETURN_TO_MENU`, `KEY`, `CLICK`, `WAIT`, `REWARD_CHOOSE`, `BOSS_REWARD_CHOOSE`, `SHOP_BUY_CARD`, `SHOP_BUY_RELIC`, `SHOP_BUY_POTION`, `SHOP_PURGE`, `START`, `CONTINUE`
 - **Choice integration**: mod sends `choice_request` for card rewards/selects; controller responds with `CHOOSE_RESPONSE <choice_id> <index>` or `skip`
 - **In-game config**: Settings → "Configure CommunicateTheSpire2" (enable/disable, command, working dir)
 
@@ -137,7 +137,7 @@ Example (edit after first game launch with the mod):
 1. Controller prints `ready`
 2. Mod sends `hello` JSON
 3. Mod auto-sends `state` when game is stable; controller may send `STATE` for immediate snapshot
-4. Commands: `STATE`, `PING`, `END`, `PLAY <handIndex> [targetIndex]`, `EVENT_CHOOSE <index>`, `REST_CHOOSE <index>`, `MAP_CHOOSE <index>`
+4. Commands: `STATE`, `PING`, `END`, `PLAY <handIndex> [targetIndex]`, `EVENT_CHOOSE <index>`, `REST_CHOOSE <index>`, `MAP_CHOOSE <index>`, `PROCEED`, `RETURN`, `RETURN_TO_MENU`, `KEY <name>`, `CLICK Left|Right X Y`, `WAIT <frames>`, `REWARD_CHOOSE <index>`, `BOSS_REWARD_CHOOSE <index>`, `SHOP_BUY_CARD|RELIC|POTION <index>`, `SHOP_PURGE`, `START [character] [seed] [ascension]`, `CONTINUE`
 5. For choice screens, mod sends `choice_request`; controller responds with `CHOOSE_RESPONSE <choice_id> <index>` or `skip`
 
 See `docs/PROTOCOL.md` for full schema and examples. Controllers: `controller/random_controller.py` (random), `controller/simple_policy_controller.py` (PLAY first playable else END), `controller/interactive_shell_controller.py` (interactive shell over localhost; auto-launches `controller/interactive_shell_client.py` on Windows unless `--no-auto-client`). **Tests:** `dotnet test CommunicateTheSpire2/Tests/CtS2.Tests.csproj` (parser unit tests); `controller/tests/test_failure_modes.py` (run as controller for integration). See `docs/TESTING.md` for testing and failure modes.

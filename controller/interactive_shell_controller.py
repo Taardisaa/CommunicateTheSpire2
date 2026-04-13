@@ -604,6 +604,15 @@ class InteractiveShellController:
                     "  return",
                 ]
             ),
+            "return_menu": "\n".join(
+                [
+                    "return_menu",
+                    "Usage: return_menu",
+                    "Queue RETURN_TO_MENU to confirm game-over/post-run transition.",
+                    "Example:",
+                    "  return_menu",
+                ]
+            ),
             "potion": "\n".join(
                 [
                     "potion",
@@ -739,6 +748,7 @@ class InteractiveShellController:
                 "  map <index>              MAP_CHOOSE <index>.",
                 "  proceed                  PROCEED.",
                 "  return                   RETURN.",
+                "  return_menu              RETURN_TO_MENU.",
                 "  potion use/discard ...   POTION commands.",
                 "  reward <index>           REWARD_CHOOSE.",
                 "  boss <index>             BOSS_REWARD_CHOOSE.",
@@ -886,6 +896,11 @@ class InteractiveShellController:
             if unavailable is not None:
                 return unavailable, False
             return self.queue_and_refresh("RETURN", timeout_s=1.5), False
+        if cmd in {"return_menu", "rtm"}:
+            unavailable = self._require_available(state, "RETURN_TO_MENU")
+            if unavailable is not None:
+                return unavailable, False
+            return self.queue_and_refresh("RETURN_TO_MENU", timeout_s=2.0, expect_change=True, settle_timeout_s=2.0), False
         if cmd == "reward":
             if len(args) != 1:
                 rewards = (state or {}).get("rewards") or []

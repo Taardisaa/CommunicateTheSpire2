@@ -431,6 +431,14 @@ public static class ModEntry
 							SendJson(error);
 						break;
 					}
+				case "RETURN_TO_MENU":
+					{
+						if (CommandExecutor.TryExecuteReturnToMenu(out error))
+							SendJson(new { type = "return_to_menu_queued", ok = true });
+						else if (error != null)
+							SendJson(error);
+						break;
+					}
 				case "KEY":
 					{
 						string keyName = (args ?? "").Trim().ToUpperInvariant();
@@ -556,7 +564,7 @@ public static class ModEntry
 					SendJson(new ErrorMessage
 					{
 						error = "UnknownCommand",
-						details = $"Command '{command}' is not supported. Supported: STATE, PING, END, PLAY, EVENT_CHOOSE, REST_CHOOSE, MAP_CHOOSE, POTION, PROCEED, RETURN, KEY, CLICK, WAIT, START, CONTINUE, REWARD_CHOOSE, BOSS_REWARD_CHOOSE, SHOP_BUY_CARD, SHOP_BUY_RELIC, SHOP_BUY_POTION, SHOP_PURGE. For choice screens, respond with CHOOSE_RESPONSE <choice_id> <index> or skip."
+						details = $"Command '{command}' is not supported. Supported: STATE, PING, END, PLAY, EVENT_CHOOSE, REST_CHOOSE, MAP_CHOOSE, POTION, PROCEED, RETURN, RETURN_TO_MENU, KEY, CLICK, WAIT, START, CONTINUE, REWARD_CHOOSE, BOSS_REWARD_CHOOSE, SHOP_BUY_CARD, SHOP_BUY_RELIC, SHOP_BUY_POTION, SHOP_PURGE. For choice screens, respond with CHOOSE_RESPONSE <choice_id> <index> or skip."
 					});
 					break;
 			}
