@@ -39,3 +39,7 @@
   - Local verification steps/commands run.
   - Any gameplay/mod-loading evidence (log excerpts or screenshots) for behavior changes.
   - Linked issue/task when available.
+
+## Additional Info
+
+Checkout the parent directory of the current project dir. It contains the extract game data, and the CommunicationMod for Slay the Spire 1.
